@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Offline MicroDoom</title>
+    <style>
+        *{margin:0;padding:0;overflow:hidden}
+        body{background:#000}
+        canvas{display:block;cursor:crosshair}
+        #h{position:fixed;top:10px;width:100%;text-align:center;color:#0f0;font:bold 16px monospace;z-index:1;text-shadow:0 0 5px #0f0}
+        #m{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);color:#fff;font:bold 24px monospace;text-align:center;z-index:2;display:none;background:rgba(0,0,0,.8);padding:30px;border:2px solid #f00}
+        #g{position:fixed;top:0;left:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.85);z-index:3;flex-direction:column}
+        #g h1{color:#f00;font:bold 48px monospace;text-shadow:0 0 20px #f00}
+        #g p{color:#aaa;font:14px monospace;margin-top:20px}
+    </style>
+</head>
+<body>
+    <div id="h">HP: <span id="hp">100</span> | KILLS: <span id="kc">0</span> | AMMO: ∞</div>
+    <div id="m"></div>
+    <div id="g"><h1>Offline MicroDoom</h1><p>Click to start — WASD move, Mouse aim, Click shoot</p></div>
+    <canvas id="c"></canvas>
+    <script>
+        const C=document.getElementById('c'),X=C.getContext('2d'),W=640,H=400;
+        C.width=W;C.height=H;
+        let px=2.5,py=2.5,pa=0,hp=100,kills=0,flash=0,started=0,dead=0;
+        const map=[
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+            [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+            [1,0,0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,1],
+            [1,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+            [1,0,0,1,1,0,0,0,3,0,0,1,0,0,0,0,0,3,0,1],
+            [1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1],
+            [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+            [1,0,0,0,2,0,0,1,1,1,0,0,0,0,2,2,0,0,0,1],
+            [1,0,0,0,0,0,0,0,0,1,0,0,0,0,2,2,0,0,0,1],
+            [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+            [1,0,0,3,0,0,0,0,0,0,0,0,3,0,0,0,0,0,0,1],
+            [1,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,1,0,0,1],
+            [1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1,0,0,1],
+            [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+            [1,0,0,0,0,0,0,0,0,3,0,0,0,0,0,0,0,3,0,1],
+            [1,0,0,2,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,1],
+            [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+            [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+            [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+            [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+        ];
+        const MW=map[0].length,MH=map.length;
+        // enemies: x,y,hp,speed,type(0=demon,1=imp)
+        let enemies=[
+            {x:5.5,  y:5.5,  hp:3, s:.012, t:0, hit:0},
+            {x:10.5, y:3.5,  hp:3, s:.015, t:1, hit:0},
+            {x:15.5, y:7.5,  hp:3, s:.012, t:0, hit:0},
+            {x:3.5,  y:10.5, hp:4, s:.01,  t:1, hit:0},
+            {x:12.5, y:10.5, hp:3, s:.013, t:0, hit:0},
+            {x:9.5,  y:14.5, hp:4, s:.011, t:1, hit:0},
+            {x:17.5, y:14.5, hp:3, s:.014, t:0, hit:0},
+            {x:3.5,  y:15.5, hp:3, s:.012, t:1, hit:0},
+            {x:17.5, y:4.5,  hp:5, s:.009, t:1, hit:0},
+        ];
+        const keys={};
+        document.addEventListener('keydown',e=>keys[e.key.toLowerCase()]=1);
+        document.addEventListener('keyup',e=>keys[e.key.toLowerCase()]=0);
+        document.addEventListener('mousemove',e=>{if(document.pointerLockElement===C)pa+=e.movementX*.003;});
+        C.addEventListener('click',()=>{
+            if(!started){started=1;document.getElementById('g').style.display='none';C.requestPointerLock();}
+            else if(dead){location.reload();}
+            else{C.requestPointerLock();shoot();}
+        });
+        function shoot(){
+        flash=4;
+        // check if enemy in crosshair
+        let hitE=null,hitD=99;
+        for(let e of enemies){
+            if(e.hp<=0)continue;
+            let dx=e.x-px,dy=e.y-py,d=Math.sqrt(dx*dx+dy*dy);
+            let a=Math.atan2(dy,dx)-pa;
+            while(a>Math.PI)a-=2*Math.PI;
+            while(a<-Math.PI)a+=2*Math.PI;
+            if(Math.abs(a)<.15&&d<hitD){
+                // check wall between
+                let blocked=0;
+                for(let t=0;t<d;t+=.1){
+                    let cx=px+Math.cos(Math.atan2(dy,dx))*t;
+                    let cy=py+Math.sin(Math.atan2(dy,dx))*t;
+                    if(map[~~cy]&&map[~~cy][~~cx]>0){blocked=1;break;}
+                }
+                if(!blocked){hitD=d;hitE=e;}
+            }
+        }
+        if(hitE){hitE.hp--;hitE.hit=8;}
+        }
+        function wallColor(type,side,d){
+            let bright=Math.max(0,1-d/10);
+            if(side)bright*=.7;
+                switch(type){
+                case 1:return`rgb(${~~(180*bright)},${~~(50*bright)},${~~(50*bright)})`;
+                case 2:return`rgb(${~~(100*bright)},${~~(100*bright)},${~~(180*bright)})`;
+                case 3:return`rgb(${~~(50*bright)},${~~(160*bright)},${~~(50*bright)})`;
+            }
+            return`rgb(${~~(150*bright)},${~~(150*bright)},${~~(150*bright)})`;
+        }
+        function update(){
+            if(!started||dead)return;
+            const sp=.06,rs=.04;
+            let dx=0,dy=0;
+            if(keys['w']){dx+=Math.cos(pa)*sp;dy+=Math.sin(pa)*sp;}
+            if(keys['s']){dx-=Math.cos(pa)*sp;dy-=Math.sin(pa)*sp;}
+            if(keys['a']){dx+=Math.cos(pa-Math.PI/2)*sp;dy+=Math.sin(pa-Math.PI/2)*sp;}
+            if(keys['d']){dx-=Math.cos(pa-Math.PI/2)*sp;dy-=Math.sin(pa-Math.PI/2)*sp;}
+            if(keys['arrowleft'])pa-=rs;
+            if(keys['arrowright'])pa+=rs;
+            let nx=px+dx,ny=py+dy;
+            if(map[~~py][~~nx]===0)px=nx;
+            if(map[~~ny][~~px]===0)py=ny;
+            // enemy AI
+            for(let e of enemies){
+                if(e.hp<=0)continue;
+                let edx=px-e.x,edy=py-e.y,ed=Math.sqrt(edx*edx+edy*edy);
+                if(ed>0.5){
+                    let mx=e.x+edx/ed*e.s,my=e.y+edy/ed*e.s;
+                    if(map[~~my]&&map[~~my][~~mx]===0){e.x=mx;e.y=my;}
+                }
+                if(ed<0.8&&Math.random()<.02){hp-=5+~~(Math.random()*5);if(hp<=0){hp=0;dead=1;}}
+                if(e.hit>0)e.hit--;
+            }
+            if(flash>0)flash--;
+        }
+        function render(){
+            X.fillStyle='#000';X.fillRect(0,0,W,H);
+            // ceiling
+            X.fillStyle='#333';X.fillRect(0,0,W,H/2);
+            // floor
+            let grd=X.createLinearGradient(0,H/2,0,H);
+            grd.addColorStop(0,'#222');grd.addColorStop(1,'#555');
+            X.fillStyle=grd;X.fillRect(0,H/2,W,H/2);
+            const FOV=Math.PI/3,rays=W;
+            const zbuf=new Float32Array(rays);
+            for(let i=0;i<rays;i++){
+                let ra=pa-FOV/2+FOV*i/rays;
+                let sin=Math.sin(ra),cos=Math.cos(ra);
+                let t=0,hit=0,side=0,wt=1;
+                for(t=0;t<20;t+=.02){
+                    let mx=~~(px+cos*t),my=~~(py+sin*t);
+                    if(my>=0&&my<MH&&mx>=0&&mx<MW&&map[my][mx]>0){
+                        hit=1;wt=map[my][mx];
+                        // determine side
+                        let fx=(px+cos*t)-mx,fy=(py+sin*t)-my;
+                        side=(Math.min(fx,1-fx)<Math.min(fy,1-fy))?1:0;
+                        break;
+                    }
+                }
+                if(hit){
+                    let d=t*Math.cos(ra-pa);
+                    zbuf[i]=d;
+                    let lh=Math.min(H*2,H/d);
+                    let y0=(H-lh)/2;
+                    X.fillStyle=wallColor(wt,side,d);
+                    X.fillRect(i,y0,1,lh);
+                }else{zbuf[i]=20;}
+            }
+            // render enemies (sprite casting)
+            let sorted=enemies.filter(e=>e.hp>0||e.hit>0).map(e=>{
+                let dx=e.x-px,dy=e.y-py;
+                return{...e,d:dx*dx+dy*dy,dx,dy};
+            }).sort((a,b)=>b.d-a.d);
+            for(let e of sorted){
+                let d=Math.sqrt(e.d);
+                let angle=Math.atan2(e.dy,e.dx)-pa;
+                while(angle>Math.PI)angle-=2*Math.PI;
+                while(angle<-Math.PI)angle+=2*Math.PI;
+                if(Math.abs(angle)>FOV/2+.2)continue;
+                let sx=W/2+angle/(FOV/2)*(W/2);
+                let sh=Math.min(H*1.5,H/d);
+                let sw=sh*.6;
+                let sy=(H-sh)/2;
+                let pd=d*Math.cos(angle);
+                // check zbuffer
+                let vis=0;
+                for(let xi=~~(sx-sw/2);xi<sx+sw/2;xi++){
+                    if(xi>=0&&xi<W&&pd<zbuf[xi])vis++;
+                }
+                if(vis<sw*.2)continue;
+                // draw enemy
+                let bright=Math.max(.2,1-d/12);
+                if(e.hp<=0){
+                    // death animation
+                    X.fillStyle=`rgba(255,0,0,${e.hit/8})`;
+                    X.fillRect(sx-sw/2,sy+sh*.3,sw,sh*.7);
+                    continue;
+                }
+                let r,g,b;
+                if(e.hit>0){r=255;g=255;b=255;}
+                else if(e.t===0){r=~~(200*bright);g=~~(60*bright);b=~~(60*bright);}
+                else{r=~~(180*bright);g=~~(140*bright);b=~~(40*bright);}
+                let col=`rgb(${r},${g},${b})`;
+                // body
+                X.fillStyle=col;
+                X.fillRect(sx-sw*.3,sy+sh*.25,sw*.6,sh*.55);
+                // head
+                X.beginPath();
+                X.arc(sx,sy+sh*.2,sw*.2,0,Math.PI*2);
+                X.fillStyle=col;
+                X.fill();
+                // eyes
+                let eyeB=Math.max(.3,1-d/8);
+                X.fillStyle=e.t===0?`rgb(255,${~~(100*eyeB)},0)`:`rgb(255,255,${~~(100*eyeB)})`;
+                X.fillRect(sx-sw*.1,sy+sh*.15,sw*.06,sw*.06);
+                X.fillRect(sx+sw*.05,sy+sh*.15,sw*.06,sw*.06);
+                // arms
+                X.fillStyle=col;
+                X.fillRect(sx-sw*.45,sy+sh*.3,sw*.15,sh*.3);
+                X.fillRect(sx+sw*.3,sy+sh*.3,sw*.15,sh*.3);
+                // legs
+                X.fillRect(sx-sw*.25,sy+sh*.75,sw*.2,sh*.25);
+                X.fillRect(sx+sw*.05,sy+sh*.75,sw*.2,sh*.25);
+            }
+            // crosshair
+            X.strokeStyle='#fff';X.lineWidth=1;
+            X.beginPath();X.moveTo(W/2-10,H/2);X.lineTo(W/2-4,H/2);X.stroke();
+            X.beginPath();X.moveTo(W/2+4,H/2);X.lineTo(W/2+10,H/2);X.stroke();
+            X.beginPath();X.moveTo(W/2,H/2-10);X.lineTo(W/2,H/2-4);X.stroke();
+            X.beginPath();X.moveTo(W/2,H/2+4);X.lineTo(W/2,H/2+10);X.stroke();
+            // gun
+            X.fillStyle='#666';
+            X.fillRect(W/2+30,H-120,20,120);
+            X.fillRect(W/2-10,H-60,60,60);
+            X.fillStyle='#888';
+            X.fillRect(W/2+32,H-120,16,80);
+            // muzzle flash
+            if(flash>2){
+                X.fillStyle=`rgba(255,200,50,${flash/4})`;
+                X.beginPath();X.arc(W/2+40,H-125,20,0,Math.PI*2);X.fill();
+                X.fillStyle=`rgba(255,255,200,${flash/4})`;
+                X.beginPath();X.arc(W/2+40,H-125,10,0,Math.PI*2);X.fill();
+            }
+            // damage flash
+            if(hp<100&&Math.random()>.7){
+                X.fillStyle=`rgba(255,0,0,${(100-hp)/400})`;
+                X.fillRect(0,0,W,H);
+            }
+            // count kills
+            let k=enemies.filter(e=>e.hp<=0).length;
+            if(k!==kills){kills=k;document.getElementById('kc').textContent=kills;}
+            document.getElementById('hp').textContent=hp;
+            // death screen
+            if(dead){
+                document.getElementById('m').style.display='block';
+                document.getElementById('m').innerHTML='YOU DIED<br><br><small>Click to restart</small>';
+            }
+            // win
+            if(kills===enemies.length&&!dead){
+                document.getElementById('m').style.display='block';
+                document.getElementById('m').innerHTML='YOU WIN!<br>ALL ENEMIES SLAIN<br><br><small>Click to restart</small>';
+            }
+        }
+        function loop(){update();render();requestAnimationFrame(loop);}
+        loop();
+        // resize
+        function resize(){
+            let s=Math.min(innerWidth/W,innerHeight/H);
+            C.style.width=W*s+'px';C.style.height=H*s+'px';
+            C.style.marginLeft=(innerWidth-W*s)/2+'px';
+            C.style.marginTop=(innerHeight-H*s)/2+'px';
+        }
+        resize();addEventListener('resize',resize);
+    </script>
+</body>
+</html>
