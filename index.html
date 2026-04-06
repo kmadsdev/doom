@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DOOM OFFLINE</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="play/media/no-wifi.svg">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap">
+</head>
+<body>
+    <!-- Matrix rain canvas -->
+    <canvas id="matrix"></canvas>
+
+    <!-- Scanlines overlay -->
+    <div class="scanlines"></div>
+
+    <!-- CRT flicker overlay -->
+    <div class="crt-flicker"></div>
+
+    <!-- Main centered content -->
+    <div class="loader-content" id="loader-content">
+        <div class="glitch-wrapper">
+            <div class="main-text" id="main-text" data-text="LOADING.">LOADING.</div>
+        </div>
+        <div class="sub-line" id="sub-line">INITIALIZING SYSTEM</div>
+        <div class="progress-bar">
+            <div class="progress-fill" id="progress-fill"></div>
+        </div>
+        <div class="terminal-line" id="terminal-line"></div>
+    </div>
+
+    <!-- Vault door panels -->
+    <div class="vault-panel vault-panel--tl" id="vault-tl"></div>
+    <div class="vault-panel vault-panel--tr" id="vault-tr"></div>
+    <div class="vault-panel vault-panel--bl" id="vault-bl"></div>
+    <div class="vault-panel vault-panel--br" id="vault-br"></div>
+
+    <script>
+    (function () {
+        /* ── Matrix Rain ── */
+        var canvas = document.getElementById('matrix');
+        var ctx = canvas.getContext('2d');
+        var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#$%&*<>{}[]|/\\ドームオフライン';
+        var fontSize = 14;
+        var columns, drops;
+
+        function resizeMatrix() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            columns = Math.floor(canvas.width / fontSize);
+            drops = [];
+            for (var i = 0; i < columns; i++) {
+                drops[i] = Math.random() * -100;
+            }
+        }
+        resizeMatrix();
+        window.addEventListener('resize', resizeMatrix);
+
+        function drawMatrix() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.06)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.font = fontSize + 'px Share Tech Mono, monospace';
+
+            for (var i = 0; i < columns; i++) {
+                var char = chars[Math.floor(Math.random() * chars.length)];
+                var x = i * fontSize;
+                var y = drops[i] * fontSize;
+
+                // Mostly dark red/green, occasional bright
+                if (Math.random() > 0.96) {
+                    ctx.fillStyle = '#ff1a1a';
+                } else if (Math.random() > 0.9) {
+                    ctx.fillStyle = 'rgba(200, 0, 0, 0.9)';
+                } else {
+                    ctx.fillStyle = 'rgba(200, 0, 0, 0.25)';
+                }
+                ctx.fillText(char, x, y);
+
+                if (y > canvas.height && Math.random() > 0.975) {
+                    drops[i] = 0;
+                }
+                drops[i]++;
+            }
+        }
+
+        var matrixInterval = setInterval(drawMatrix, 45);
+
+        /* ── Text Sequence ── */
+        var mainText = document.getElementById('main-text');
+        var subLine = document.getElementById('sub-line');
+        var termLine = document.getElementById('terminal-line');
+        var progressFill = document.getElementById('progress-fill');
+
+        var sequence = [
+            { text: 'LOADING.',   sub: 'INITIALIZING SYSTEM',     duration: 600 },
+            { text: 'LOADING..',  sub: 'READING WAD FILES',       duration: 500 },
+            { text: 'LOADING...', sub: 'DECOMPRESSING ASSETS',    duration: 700 },
+            { text: 'DOOM',       sub: 'FULL CLASSIC EXPERIENCE', duration: 900,  accent: 'red' },
+            { text: 'LOADING.',   sub: 'LOADING WEAPONS',         duration: 400 },
+            { text: 'LOADING..',  sub: 'SPAWNING DEMONS',         duration: 500 },
+            { text: 'MICRODOOM',  sub: '44KB HYPER-COMPRESSED',   duration: 800,  accent: 'orange' },
+            { text: 'LOADING...', sub: 'ENCODING BASE64',         duration: 500 },
+            { text: 'OFFLINE',    sub: 'ZERO FILES · ZERO HOSTING', duration: 900, accent: 'green' },
+            { text: 'LOADING..',  sub: 'PREPARING LAUNCH',        duration: 400 },
+            { text: 'READY',      sub: 'PRESS START',             duration: 600,  accent: 'red' },
+        ];
+
+        var terminalMessages = [
+            '> mounting virtual filesystem...',
+            '> doom1.wad: OK (4274 lumps)',
+            '> decompressing textures... done',
+            '> loading E1M1: Hangar',
+            '> initializing raycaster engine...',
+            '> allocating zone memory... 8MB',
+            '> compiling shaders... OK',
+            '> base64 encode: 7MB → data:uri',
+            '> verifying checksum... PASS',
+            '> network: disabled (offline mode)',
+            '> ALL SYSTEMS GO',
+        ];
+
+        var totalDuration = 0;
+        for (var i = 0; i < sequence.length; i++) totalDuration += sequence[i].duration;
+
+        var step = 0;
+        var elapsed = 0;
+
+        function setAccent(accent) {
+            mainText.className = 'main-text';
+            if (accent === 'red') mainText.classList.add('accent-red');
+            else if (accent === 'orange') mainText.classList.add('accent-orange');
+            else if (accent === 'green') mainText.classList.add('accent-green');
+        }
+
+        function nextStep() {
+            if (step >= sequence.length) {
+                triggerVaultOpen();
+                return;
+            }
+
+            var s = sequence[step];
+            mainText.setAttribute('data-text', s.text);
+            mainText.textContent = s.text;
+            subLine.textContent = s.sub;
+            setAccent(s.accent || '');
+
+            // Glitch burst on keyword frames
+            if (s.accent) {
+                mainText.classList.add('glitch-burst');
+                setTimeout(function () { mainText.classList.remove('glitch-burst'); }, 200);
+            }
+
+            // Terminal line
+            termLine.textContent = terminalMessages[step] || '';
+
+            // Progress
+            elapsed += s.duration;
+            var pct = Math.min((elapsed / totalDuration) * 100, 100);
+            progressFill.style.width = pct + '%';
+
+            step++;
+            setTimeout(nextStep, s.duration);
+        }
+
+        // Start after a tiny delay for fonts to settle
+        setTimeout(nextStep, 300);
+
+        /* ── Vault Open + Redirect ── */
+        function triggerVaultOpen() {
+            clearInterval(matrixInterval);
+
+            document.body.classList.add('vault-opening');
+
+            // Pre-load the destination in an iframe to make transition seamless
+            var iframe = document.createElement('iframe');
+            iframe.src = 'play/';
+            iframe.className = 'preload-frame';
+            document.body.appendChild(iframe);
+
+            // After vault animation completes, navigate
+            setTimeout(function () {
+                window.location.href = 'play/';
+            }, 1400);
+        }
+    })();
+    </script>
+</body>
+</html>
