@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DOOM OFFLINE</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="media/no-wifi.svg">
+    <script>
+        const DOOM_FILESIZE = '7 MB';
+        const MICRODOOM_FILESIZE = '44 KB';
+
+        document.addEventListener('DOMContentLoaded', function () {
+            document.getElementById('badge-doom').textContent = DOOM_FILESIZE;
+            document.getElementById('doom-size-stat').textContent = DOOM_FILESIZE;
+            document.getElementById('badge-microdoom').textContent = MICRODOOM_FILESIZE;
+            document.getElementById('microdoom-size-stat').textContent = MICRODOOM_FILESIZE;
+
+            // Offline buttons — fetch data URI and reveal copy panel
+            document.querySelectorAll('.play-btn--offline').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    var src = btn.getAttribute('data-uri-src');
+                    var panelId = src.indexOf('doom/doom') === 0 ? 'offline-panel-doom' : 'offline-panel-microdoom';
+                    var inputId = src.indexOf('doom/doom') === 0 ? 'offline-uri-doom' : 'offline-uri-microdoom';
+                    var panel = document.getElementById(panelId);
+                    var input = document.getElementById(inputId);
+
+                    if (!panel.hidden) {
+                        panel.hidden = true;
+                        return;
+                    }
+
+                    if (input.value) {
+                        panel.hidden = false;
+                        return;
+                    }
+
+                    btn.querySelector('span').textContent = 'Loading…';
+                    fetch(src)
+                        .then(function (r) { return r.text(); })
+                        .then(function (uri) {
+                            input.value = uri.trim();
+                            panel.hidden = false;
+                            btn.querySelector('span').innerHTML = '<img class="play-btn-icon" src="media/no-wifi.svg" alt=""> Play Offline';
+                        })
+                        .catch(function () {
+                            btn.querySelector('span').innerHTML = '<img class="play-btn-icon" src="media/no-wifi.svg" alt=""> Error loading';
+                        });
+                });
+            });
+
+            // Copy buttons
+            document.querySelectorAll('.offline-copy-btn').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    var input = document.getElementById(btn.getAttribute('data-target'));
+                    input.select();
+                    navigator.clipboard.writeText(input.value).then(function () {
+                        btn.textContent = 'Copied!';
+                        setTimeout(function () { btn.textContent = 'Copy'; }, 2000);
+                    });
+                });
+            });
+        });
+    </script>
+</head>
+<body>
+    <section class="hero">
+        <h1 class="hero-title">DOOM</h1>
+        <p class="hero-subtitle">Zero Files &middot; Zero Hosting &middot; Offline</p>
+        <p class="hero-tagline">Classic FPS packed into your browser. No install. No server. Just play.</p>
+        <div class="divider"></div>
+    </section>
+
+    <section class="games-section">
+        <h2 class="section-title">Choose Your Game</h2>
+        <div class="games-grid">
+
+        <div class="game-card game-card--doom">
+            <div class="card-image">
+            <img src="media/doom_1.svg" alt="DOOM gameplay screenshot" loading="lazy">
+            <span class="card-badge" id="badge-doom">7 MB</span>
+            </div>
+            <div class="card-body">
+            <h3 class="card-name">DOOM</h3>
+            <p class="card-version">Full Classic Experience</p>
+            <p class="card-desc">
+                The legendary <strong>1993 FPS</strong> compressed into a single HTML file.
+                Full levels, enemies, weapons, and soundtrack — all running in your browser.
+                Save it once, play it forever.
+            </p>
+            <div class="card-stats">
+                <div class="stat">
+                <div class="stat-value" id="doom-size-stat">7 MB</div>
+                <div class="stat-label">File Size</div>
+                </div>
+                <div class="stat">
+                <img class="stat-icon" src="media/no-file.svg" alt="No files needed">
+                <div class="stat-label">No Files</div>
+                </div>
+                <div class="stat">
+                <img class="stat-icon" src="media/no-wifi.svg" alt="Fully offline">
+                <div class="stat-label">Offline</div>
+                </div>
+            </div>
+            <div class="card-buttons">
+            <a href="doom" class="play-btn" id="btn-doom"><span><img class="play-btn-icon" src="media/wifi.svg" alt=""> Play Online</span></a>
+            <button class="play-btn play-btn--offline" data-uri-src="doom/doom_src_b64-dataurl.txt"><span><img class="play-btn-icon" src="media/no-wifi.svg" alt=""> Play Offline</span></button>
+            </div>
+            <div class="offline-panel" id="offline-panel-doom" hidden>
+                <p class="offline-hint">Paste this URI into a new browser tab to play offline:</p>
+                <div class="offline-uri-row">
+                    <input class="offline-uri" id="offline-uri-doom" readonly>
+                    <button class="offline-copy-btn" data-target="offline-uri-doom">Copy</button>
+                </div>
+            </div>
+            </div>
+        </div>
+
+        <div class="game-card game-card--micro">
+            <div class="card-image">
+            <img src="media/microdoom_1.svg" alt="MicroDOOM gameplay screenshot" loading="lazy">
+            <span class="card-badge" id="badge-microdoom">44 KB</span>
+            </div>
+            <div class="card-body">
+            <h3 class="card-name">MICRODOOM</h3>
+            <p class="card-version">v1.0 &mdash; Hyper-Compressed</p>
+            <p class="card-desc">
+                A full DOOM-like FPS in just <strong>44 kilobytes</strong>.
+                Raycasting engine, enemies, multiple weapons, and a HUD —
+                all hand-crafted in vanilla JavaScript. Smaller than a favicon.
+            </p>
+            <div class="card-stats">
+                <div class="stat">
+                <div class="stat-value" id="microdoom-size-stat">44 KB</div>
+                <div class="stat-label">File Size</div>
+                </div>
+                <div class="stat">
+                <img class="stat-icon" src="media/no-file.svg" alt="No files needed">
+                <div class="stat-label">No Files</div>
+                </div>
+                <div class="stat">
+                <img class="stat-icon" src="media/no-wifi.svg" alt="Fully offline">
+                <div class="stat-label">Offline</div>
+                </div>
+            </div>
+            <div class="card-buttons">
+            <a href="microdoom" class="play-btn"><span><img class="play-btn-icon" src="media/wifi.svg" alt=""> Play Online</span></a>
+            <button class="play-btn play-btn--offline" data-uri-src="microdoom/microdoom_src_b64-dataurl.txt"><span><img class="play-btn-icon" src="media/no-wifi.svg" alt=""> Play Offline</span></button>
+            </div>
+            <div class="offline-panel" id="offline-panel-microdoom" hidden>
+                <p class="offline-hint">Paste this URI into a new browser tab to play offline:</p>
+                <div class="offline-uri-row">
+                    <input class="offline-uri" id="offline-uri-microdoom" readonly>
+                    <button class="offline-copy-btn" data-target="offline-uri-microdoom">Copy</button>
+                </div>
+            </div>
+            </div>
+        </div>
+
+        </div>
+    </section>
+
+    <section class="info-section">
+        <h2 class="section-title">How It Works</h2>
+        <div class="info-grid">
+        <div class="info-item">
+            <div class="info-icon"><img src="media/no-file.svg" alt="No Files"></div>
+            <div class="info-label">No Files</div>
+            <div class="info-value">Each game is an <strong>encoded base64 URI</strong>. All assets, code, and data are compressed in the encoded link.</div>
+        </div>
+        <div class="info-item">
+            <div class="info-icon"><img src="media/no-download.svg" alt="No Download"></div>
+            <div class="info-label">No Download</div>
+            <div class="info-value">Open it in any browser. No plugins, no frameworks and no internet required.</div>
+        </div>
+        <div class="info-item">
+            <div class="info-icon"><img src="media/no-wifi.svg" alt="Fully Offline"></div>
+            <div class="info-label">Fully Offline</div>
+            <div class="info-value">Save the Data URL and play it anywhere.</div>
+        </div>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <p> &copy; 2026 kmadsdev &middot; Handcrafted by a human</p>
+    </footer>
+</body>
+</html>

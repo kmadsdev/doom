@@ -1,0 +1,57 @@
+import sys
+from datetime import datetime
+from encoding_helpers import html_file_to_base64_dataurl, html_file_to_compressed_html
+
+
+def format_size(bytes_size: int) -> str:
+    """Format bytes as B, KB, or MB depending on size."""
+    if bytes_size < 1024:
+        return f"{bytes_size} B"
+    elif bytes_size < 1024 * 1024:
+        return f"{bytes_size / 1024:.2f} KB"
+    else:
+        return f"{bytes_size / (1024 * 1024):.2f} MB"
+
+
+if __name__ == '__main__':
+    game_map = {
+        'doom': '../play/doom/index.html',
+        'microdoom': '../play/microdoom/index.html',
+    }
+
+    # Sub-commands: encode <game> [--compressed]
+    # "python encode doom"            -> plain base64 data URL
+    # "python encode doom --compressed" -> gzip-compressed self-extracting data URL
+
+    if len(sys.argv) > 1: game = sys.argv[1]
+    else:
+        print("Usage: python encode <game> [--compressed]")
+        print("Games: doom, microdoom")
+        sys.exit(1)
+
+    if game not in game_map: raise ValueError(f"Invalid game: {game}. Must be one of: {', '.join(game_map.keys())}")
+
+    compressed = '--compressed' in sys.argv
+
+    html_path = game_map[game]
+    timestamp = datetime.now().strftime('%H-%M-%S__%Y-%m-%d')
+
+    if compressed:
+        output_path = f"encoded_files/encoded_{timestamp}_{game}_src_compressed.html"
+        print(f"Encoding (compressed): {game}...")
+        print(f"Reading: {html_path}")
+        uri = html_file_to_compressed_html(html_path, output_path=output_path)
+    else:
+        output_path = f"encoded_files/encoded_{timestamp}_{game}_src_b64-dataurl.txt"
+        print(f"Encoding: {game}...")
+        print(f"Reading: {html_path}")
+        uri = html_file_to_base64_dataurl(html_path, output_path=output_path)
+
+    uri_size = len(uri) * 4 / 3  # rough approximation of decoded size
+
+    print(f"✓ Written to: {output_path}")
+    print(f"✓ URI length: {len(uri):,} characters")
+    if compressed:
+        print(f"✓ File size: {format_size(len(uri.encode()))} (loader HTML)")
+    else:
+        print(f"✓ File size: {format_size(int(uri_size))} (approx, base64-decoded)")

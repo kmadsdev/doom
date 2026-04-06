@@ -1,0 +1,6 @@
+.DS_Store
+.venv/
+__pycache__/
+encoded_files/
+sources/
+lab/
