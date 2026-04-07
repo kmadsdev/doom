@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DOOM OFFLINE</title>
     <link rel="stylesheet" href="style.css">
-    <link rel="icon" href="play/media/no-wifi.svg">
+    <link rel="icon" href="start/media/no-wifi.svg">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap">
@@ -176,13 +176,13 @@
 
             // Pre-load the destination in an iframe to make transition seamless
             var iframe = document.createElement('iframe');
-            iframe.src = 'play/';
+            iframe.src = 'start/';
             iframe.className = 'preload-frame';
             document.body.appendChild(iframe);
 
             // After vault animation completes, navigate
             setTimeout(function () {
-                window.location.href = 'play/';
+                window.location.href = 'start/';
             }, 1400);
         }
     })();
