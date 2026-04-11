@@ -16,7 +16,8 @@ def format_size(bytes_size: int) -> str:
 if __name__ == '__main__':
     game_map = {
         'doom': '../play/doom/index.html',
-        'microdoom': '../play/microdoom/index.html',
+        'microdoom_v1.0': '../start/microdoom/v1.0/index.html',
+        'microdoom_v1.1': '../start/microdoom/v1.1/index.html',
     }
 
     # Sub-commands: encode <game> [--compressed]
@@ -26,7 +27,7 @@ if __name__ == '__main__':
     if len(sys.argv) > 1: game = sys.argv[1]
     else:
         print("Usage: python encode <game> [--compressed]")
-        print("Games: doom, microdoom")
+        print("Games: " + ", ".join(game_map.keys()))
         sys.exit(1)
 
     if game not in game_map: raise ValueError(f"Invalid game: {game}. Must be one of: {', '.join(game_map.keys())}")
