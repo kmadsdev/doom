@@ -1,1065 +1,1797 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MicroDOOM</title>
-<style>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { background: #000; overflow: hidden; font-family: monospace; }
-#gameCanvas { display: block; image-rendering: pixelated; }
-#startScreen {
-  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  background: #000; z-index: 100; cursor: pointer;
-}
-#startScreen h1 {
-  font-size: 64px; color: #c00; text-shadow: 0 0 30px #f00, 0 4px 0 #600;
-  letter-spacing: 8px; margin-bottom: 10px;
-}
-#startScreen .sub {
-  color: #888; font-size: 14px; margin-bottom: 40px; letter-spacing: 2px;
-}
-#startScreen .controls {
-  color: #aaa; font-size: 13px; line-height: 2; text-align: center;
-}
-#startScreen .controls span { color: #ff0; }
-#startScreen .start-btn {
-  margin-top: 30px; padding: 12px 40px; font-size: 20px; font-family: monospace;
-  background: #c00; color: #fff; border: none; cursor: pointer;
-  letter-spacing: 4px; text-transform: uppercase;
-}
-#startScreen .start-btn:hover { background: #f00; }
-#hud {
-  position: fixed; bottom: 0; left: 0; width: 100%; height: 60px;
-  background: linear-gradient(to bottom, #333, #111);
-  border-top: 2px solid #555;
-  display: flex; align-items: center; justify-content: space-around;
-  z-index: 10; display: none;
-}
-.hud-item { text-align: center; }
-.hud-label { color: #888; font-size: 11px; letter-spacing: 2px; }
-.hud-value { color: #fff; font-size: 28px; font-weight: bold; }
-#hudHp .hud-value { color: #0f0; }
-#hudKills .hud-value { color: #ff0; }
-#hudAmmo .hud-value { color: #0af; }
-#overlay {
-  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-  display: none; align-items: center; justify-content: center;
-  z-index: 50; flex-direction: column;
-}
-#overlay.dead-overlay { background: rgba(100,0,0,0.7); }
-#overlay.win-overlay { background: rgba(0,50,0,0.7); }
-#overlay h2 { font-size: 48px; color: #fff; text-shadow: 0 0 20px currentColor; margin-bottom: 20px; }
-#overlay p { color: #ccc; font-size: 16px; cursor: pointer; }
-#minimap {
-  position: fixed; top: 10px; right: 10px; z-index: 10; display: none;
-  border: 1px solid #555; opacity: 0.8;
-}
-#crosshair {
-  position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-  z-index: 10; display: none; pointer-events: none;
-}
-#dmgFlash {
-  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-  pointer-events: none; z-index: 9; opacity: 0;
-  background: radial-gradient(ellipse at center, transparent 30%, rgba(255,0,0,0.6) 100%);
-  transition: opacity 0.1s;
-}
-</style>
-</head>
-<body>
-
-<div id="startScreen">
-  <h1>MICRODOOM</h1>
-  <div class="controls">
-    <span>WASD</span> / <span>Arrow Keys</span> — Move &amp; Strafe<br>
-    <span>Mouse</span> — Look around<br>
-    <span>Left Click</span> — Shoot<br>
-    <span>M</span> — Toggle minimap<br>
-    <span>ESC</span> — Release mouse
-  </div>
-  <button class="start-btn" id="startBtn">CLICK TO PLAY</button>
-</div>
-
-<canvas id="gameCanvas"></canvas>
-<canvas id="minimap" width="160" height="160"></canvas>
-
-<svg id="crosshair" width="30" height="30" viewBox="0 0 30 30">
-  <line x1="15" y1="5" x2="15" y2="12" stroke="#0f0" stroke-width="2"/>
-  <line x1="15" y1="18" x2="15" y2="25" stroke="#0f0" stroke-width="2"/>
-  <line x1="5" y1="15" x2="12" y2="15" stroke="#0f0" stroke-width="2"/>
-  <line x1="18" y1="15" x2="25" y2="15" stroke="#0f0" stroke-width="2"/>
-  <circle cx="15" cy="15" r="1" fill="#0f0"/>
-</svg>
-
-<div id="dmgFlash"></div>
-
-<div id="hud">
-  <div class="hud-item" id="hudHp">
-    <div class="hud-label">HEALTH</div>
-    <div class="hud-value"><span id="hpVal">100</span>%</div>
-  </div>
-  <div class="hud-item" id="hudKills">
-    <div class="hud-label">KILLS</div>
-    <div class="hud-value"><span id="killVal">0</span>/<span id="totalVal">0</span></div>
-  </div>
-  <div class="hud-item" id="hudAmmo">
-    <div class="hud-label">AMMO</div>
-    <div class="hud-value">&infin;</div>
-  </div>
-</div>
-
-<div id="overlay">
-  <h2 id="overlayTitle"></h2>
-  <p id="overlayMsg">Click to restart</p>
-</div>
-
-<script>
-(function() {
-  "use strict";
-
-  // --- CONFIGURATION ---
-  var SCREEN_W = 640;
-  var SCREEN_H = 400;
-
-  var MOVE_SPEED = 0.060; // 20% faster than the fastest boss
-  var ROT_SPEED =  0.05;
-  var MOUSE_SENS = 0.004;
-  var PLAYER_RADIUS = 0.25;
-
-  var FOV = Math.PI / 3;
-  var HALF_FOV = FOV / 2;
-  var NUM_RAYS = SCREEN_W;
-
-  // --- MAP ---
-  // 0=empty, 1=gray wall, 2=red wall, 3=blue wall, 4=green wall, 5=brown wall
-  var MAP = [
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-    [1,0,2,0,3,0,4,0,5,0,2,0,3,0,4,0,5,0,2,0,3,0,4,0,5,0,2,0,3,0,4,0,5,0,2,0,3,0,4,0,5,0,2,0,3,0,4,1],
-    [1,0,2,2,2,0,3,3,3,0,4,4,4,0,5,5,5,0,2,2,2,0,3,3,3,0,4,4,4,0,5,5,5,0,2,2,2,0,3,3,3,0,4,4,4,0,5,1],
-    [1,0,2,0,2,0,3,0,3,0,4,0,4,0,5,0,5,0,2,0,2,0,3,0,3,0,4,0,4,0,5,0,5,0,2,0,2,0,3,0,3,0,4,0,4,0,5,1],
-    [1,0,2,2,2,0,3,3,3,0,4,4,4,0,5,5,5,0,2,2,2,0,3,3,3,0,4,4,4,0,5,5,5,0,2,2,2,0,3,3,3,0,4,4,4,0,5,1],
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-
-    /* DENSE GRID */
-    [1,0,1,2,1,3,1,4,1,5,1,2,1,3,1,4,1,5,1,2,1,3,1,4,1,5,1,2,1,3,1,4,1,5,1,2,1,3,1,4,1,5,1,2,1,3,0,1],
-    [1,0,2,0,3,0,4,0,5,0,2,0,3,0,4,0,5,0,2,0,3,0,4,0,5,0,2,0,3,0,4,0,5,0,2,0,3,0,4,0,5,0,2,0,3,0,0,1],
-    [1,0,1,3,1,2,1,5,1,4,1,3,1,2,1,5,1,4,1,3,1,2,1,5,1,4,1,3,1,2,1,5,1,4,1,3,1,2,1,5,1,4,1,3,1,2,0,1],
-
-    /* CENTER CHAOS */
-    [1,0,0,0,0,2,2,0,0,3,3,0,0,4,4,0,0,5,5,0,0,2,2,0,0,3,3,0,0,4,4,0,0,5,5,0,0,2,2,0,0,3,3,0,0,4,4,1],
-    [1,0,0,1,1,2,0,3,0,1,1,4,0,5,0,1,1,2,0,3,0,1,1,4,0,5,0,1,1,2,0,3,0,1,1,4,0,5,0,1,1,2,0,3,0,1,1,1],
-    [1,0,0,0,0,2,2,0,0,3,3,0,0,4,4,0,0,5,5,0,0,2,2,0,0,3,3,0,0,4,4,0,0,5,5,0,0,2,2,0,0,3,3,0,0,4,4,1],
-
-    /* LOWER STRUCTURE */
-    [1,0,5,5,5,0,2,2,2,0,3,3,3,0,4,4,4,0,5,5,5,0,2,2,2,0,3,3,3,0,4,4,4,0,5,5,5,0,2,2,2,0,3,3,3,0,4,1],
-    [1,0,5,0,5,0,2,0,2,0,3,0,3,0,4,0,4,0,5,0,5,0,2,0,2,0,3,0,3,0,4,0,4,0,5,0,5,0,2,0,2,0,3,0,3,0,4,1],
-    [1,0,5,5,5,0,2,2,2,0,3,3,3,0,4,4,4,0,5,5,5,0,2,2,2,0,3,3,3,0,4,4,4,0,5,5,5,0,2,2,2,0,3,3,3,0,4,1],
-
-    /* FINAL CORRIDOR */
-    [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
-  ];
-  var MAP_H = MAP.length;
-  var MAP_W = MAP[0].length;
-
-  // Wall colors: [base_r, base_g, base_b]
-  var WALL_COLORS = {
-    1: [160, 160, 160],
-    2: [180, 50,  50],
-    3: [50,  80,  180],
-    4: [50,  160, 50],
-    5: [160, 120, 60]
-  };
-
-  // --- PLAYER STATE ---
-  var player = {
-    hp: 250,
-    x: 1.5,
-    y: 1.5,
-    angle: 0,
-    kills: 0,
-    shooting: 0,
-    gunBob: 0,
-    bobDir: 1
-  };
-
-  // --- ENEMIES ---
-  function makeEnemy(x, y, hp, speed, type) {
-    return {
-      x: x, y: y, hp: hp, maxHp: hp, speed: speed,
-      type: type, // 0=demon(red), 1=imp(yellow), 2=boss(purple)
-      alive: true,
-      hitTimer: 0,
-      attackCooldown: 0,
-      deathTimer: 0,
-      seen: false
-    };
-  }
-
-  // x, y, hp, speed, type (0=demon,1=imp,2=boss)
-  var enemies = [
-    // demons
-    makeEnemy(5.5,  5.5,  25,  0.025, 0),
-    makeEnemy(10.5, 10.5, 25,  0.025, 0),
-    makeEnemy(15.5, 3.5,  25,  0.026, 0),
-    makeEnemy(5.5,  14.5, 25,  0.026, 0),
-    makeEnemy(20.5, 20.5, 25,  0.027, 0),
-    makeEnemy(5.5,  5.5,  25,  0.027, 0),
-    makeEnemy(10.5, 10.5, 25,  0.028, 0),
-    makeEnemy(15.5, 3.5,  25,  0.028, 0),
-    makeEnemy(5.5,  14.5, 25,  0.029, 0),
-    makeEnemy(20.5, 20.5, 25,  0.029, 0),
-
-    makeEnemy(3.5,  19.5, 45,  0.030, 1),
-    makeEnemy(18.5, 8.5,  45,  0.031, 1),
-    makeEnemy(13.5, 14.5, 45,  0.032, 1),
-    makeEnemy(21.5, 2.5,  45,  0.033, 1),
-    makeEnemy(8.5,  7.5,  45,  0.034, 1),
-    makeEnemy(3.5,  19.5, 45,  0.035, 1),
-    makeEnemy(18.5, 8.5,  45,  0.036, 1),
-    makeEnemy(13.5, 14.5, 45,  0.037, 1),
-    makeEnemy(21.5, 2.5,  45,  0.038, 1),
-    makeEnemy(8.5,  7.5,  45,  0.039, 1),
-
-    makeEnemy(12.5, 20.5, 100, 0.050, 2),
-    makeEnemy(20.5, 12.5, 200, 0.050, 2),
-    makeEnemy(15.5, 12.5, 200, 0.050, 2),
-    makeEnemy(18.5, 12.5, 200, 0.050, 2),
-    makeEnemy(3.5,  12.5, 200, 0.050, 2),
-    makeEnemy(19.5, 12.5, 200, 0.050, 2),
-    makeEnemy(2.5,  12.5, 200, 0.050, 2),
-    makeEnemy(17.5, 12.5, 200, 0.050, 2),
-    makeEnemy(1.5,  12.5, 200, 0.050, 2),
-    makeEnemy(20.5, 12.5, 200, 0.050, 2),
-  ];
-
-  var totalEnemies = enemies.length;
-
-  // --- CANVAS SETUP ---
-  var canvas = document.getElementById("gameCanvas");
-  var ctx = canvas.getContext("2d");
-  canvas.width = SCREEN_W;
-  canvas.height = SCREEN_H;
-
-  var minimapCanvas = document.getElementById("minimap");
-  var mctx = minimapCanvas.getContext("2d");
-
-  // --- GAME STATE ---
-  var gameStarted = false;
-  var gameover = false;
-  var gameWon = false;
-  var showMinimap = false;
-  var lastTime = 0;
-  var dt = 0;
-
-  // --- INPUT ---
-  var keys = {};
-  var mouseMovX = 0;
-
-  document.addEventListener("keydown", function(e) {
-    keys[e.code] = true;
-    if (e.code === "KeyM" && gameStarted && !gameover && !gameWon) {
-      showMinimap = !showMinimap;
-      document.getElementById("minimap").style.display = showMinimap ? "block" : "none";
-    }
-  });
-  document.addEventListener("keyup", function(e) {
-    keys[e.code] = false;
-  });
-  document.addEventListener("mousemove", function(e) {
-    if (document.pointerLockElement === canvas) {
-      mouseMovX += e.movementX;
-    }
-  });
-  canvas.addEventListener("mousedown", function(e) {
-    if (e.button === 0 && gameStarted && !gameover && !gameWon) {
-      playerShoot();
-    }
-  });
-
-  // --- START GAME ---
-  document.getElementById("startBtn").addEventListener("click", function() {
-    startGame();
-  });
-  document.getElementById("startScreen").addEventListener("click", function(e) {
-    if (e.target.id !== "startBtn") return;
-  });
-
-  document.getElementById("overlay").addEventListener("click", function() {
-    restartGame();
-  });
-
-  function startGame() {
-    document.getElementById("startScreen").style.display = "none";
-    document.getElementById("hud").style.display = "flex";
-    document.getElementById("crosshair").style.display = "block";
-    document.getElementById("totalVal").textContent = totalEnemies;
-    gameStarted = true;
-    canvas.requestPointerLock();
-  }
-
-  function restartGame() {
-    player.x = 2.5;
-    player.y = 2.5;
-    player.angle = 0;
-    player.hp = 100;
-    player.kills = 0;
-    player.shooting = 0;
-    gameover = false;
-    gameWon = false;
-
-  // x, y, hp, speed, type (0=demon,1=imp,2=boss)
-  var enemies = [
-    // demons
-    makeEnemy(5.5,  5.5,  25,  0.035, 0),
-    makeEnemy(10.5, 10.5, 25,  0.035, 0),
-    makeEnemy(15.5, 3.5,  25,  0.036, 0),
-    makeEnemy(5.5,  14.5, 25,  0.036, 0),
-    makeEnemy(20.5, 20.5, 25,  0.037, 0),
-    makeEnemy(5.5,  5.5,  25,  0.037, 0),
-    makeEnemy(10.5, 10.5, 25,  0.038, 0),
-    makeEnemy(15.5, 3.5,  25,  0.038, 0),
-    makeEnemy(5.5,  14.5, 25,  0.039, 0),
-    makeEnemy(20.5, 20.5, 25,  0.039, 0),
-    makeEnemy(3.5,  19.5, 45,  0.040, 1),
-    makeEnemy(18.5, 8.5,  45,  0.041, 1),
-    makeEnemy(13.5, 14.5, 45,  0.042, 1),
-    makeEnemy(21.5, 2.5,  45,  0.043, 1),
-    makeEnemy(8.5,  7.5,  45,  0.044, 1),
-    makeEnemy(3.5,  19.5, 45,  0.045, 1),
-    makeEnemy(18.5, 8.5,  45,  0.046, 1),
-    makeEnemy(13.5, 14.5, 45,  0.047, 1),
-    makeEnemy(21.5, 2.5,  45,  0.048, 1),
-    makeEnemy(8.5,  7.5,  45,  0.049, 1),
-    makeEnemy(12.5, 20.5, 100, 0.050, 2),
-    makeEnemy(20.5, 12.5, 200, 0.050, 2),
-    makeEnemy(15.5, 12.5, 200, 0.050, 2),
-    makeEnemy(18.5, 12.5, 200, 0.050, 2),
-    makeEnemy(3.5,  12.5, 200, 0.050, 2),
-    makeEnemy(19.5, 12.5, 200, 0.050, 2),
-    makeEnemy(2.5,  12.5, 200, 0.050, 2),
-    makeEnemy(17.5, 12.5, 200, 0.050, 2),
-    makeEnemy(1.5,  12.5, 200, 0.050, 2),
-    makeEnemy(20.5, 12.5, 200, 0.050, 2),
-  ];
-
-    document.getElementById("overlay").style.display = "none";
-    document.getElementById("overlay").className = "";
-    canvas.requestPointerLock();
-  }
-
-  // --- AUDIO (Web Audio API - procedural) ---
-  var audioCtx = null;
-  function ensureAudio() {
-    if (!audioCtx) {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    }
-  }
-
-  function playSound(freq, duration, type, vol) {
-    try {
-      ensureAudio();
-      var osc = audioCtx.createOscillator();
-      var gain = audioCtx.createGain();
-      osc.type = type || "square";
-      osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(freq * 0.3, audioCtx.currentTime + duration);
-      gain.gain.setValueAtTime(vol || 0.15, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      osc.start();
-      osc.stop(audioCtx.currentTime + duration);
-    } catch(e) {}
-  }
-
-  function playShotSound() {
-    playSound(200, 0.15, "sawtooth", 0.2);
-    playSound(80, 0.2, "square", 0.15);
-  }
-
-  function playHitSound() {
-    playSound(400, 0.1, "square", 0.1);
-  }
-
-  function playHurtSound() {
-    playSound(100, 0.3, "sawtooth", 0.2);
-  }
-
-  function playDeathSound() {
-    playSound(300, 0.1, "square", 0.15);
-    setTimeout(function() { playSound(200, 0.1, "square", 0.12); }, 100);
-    setTimeout(function() { playSound(100, 0.3, "sawtooth", 0.1); }, 200);
-  }
-
-  // --- COLLISION ---
-  function isWall(x, y) {
-    var mx = Math.floor(x);
-    var my = Math.floor(y);
-    if (mx < 0 || mx >= MAP_W || my < 0 || my >= MAP_H) return true;
-    return MAP[my][mx] > 0;
-  }
-
-  function canMoveTo(x, y) {
-    var r = PLAYER_RADIUS;
-    return !isWall(x - r, y - r) && !isWall(x + r, y - r) &&
-           !isWall(x - r, y + r) && !isWall(x + r, y + r);
-  }
-
-  // --- LINE OF SIGHT ---
-  function hasLineOfSight(x1, y1, x2, y2) {
-    var dx = x2 - x1;
-    var dy = y2 - y1;
-    var dist = Math.sqrt(dx * dx + dy * dy);
-    var steps = Math.ceil(dist * 10);
-    for (var i = 0; i <= steps; i++) {
-      var t = i / steps;
-      var cx = x1 + dx * t;
-      var cy = y1 + dy * t;
-      if (isWall(cx, cy)) return false;
-    }
-    return true;
-  }
-
-  // --- SHOOTING ---
-  function playerShoot() {
-    if (player.shooting > 0) return;
-    player.shooting = 8;
-    playShotSound();
-
-    // Find closest enemy in crosshair
-    var bestDist = 999;
-    var bestEnemy = null;
-
-    for (var i = 0; i < enemies.length; i++) {
-      var e = enemies[i];
-      if (!e.alive) continue;
-
-      var dx = e.x - player.x;
-      var dy = e.y - player.y;
-      var dist = Math.sqrt(dx * dx + dy * dy);
-
-      var angle = Math.atan2(dy, dx) - player.angle;
-      while (angle > Math.PI) angle -= Math.PI * 2;
-      while (angle < -Math.PI) angle += Math.PI * 2;
-
-      // Wider hitbox for closer enemies
-      var hitWidth = Math.min(0.3, 0.8 / dist);
-
-      if (Math.abs(angle) < hitWidth && dist < bestDist) {
-        if (hasLineOfSight(player.x, player.y, e.x, e.y)) {
-          bestDist = dist;
-          bestEnemy = e;
-        }
-      }
-    }
-
-    if (bestEnemy) {
-      bestEnemy.hp--;
-      bestEnemy.hitTimer = 10;
-      playHitSound();
-
-      if (bestEnemy.hp <= 0) {
-        bestEnemy.alive = false;
-        bestEnemy.deathTimer = 30;
-        player.kills++;
-        playDeathSound();
-        document.getElementById("killVal").textContent = player.kills;
-
-        if (player.kills >= totalEnemies) {
-          gameWon = true;
-          document.getElementById("overlay").style.display = "flex";
-          document.getElementById("overlay").className = "win-overlay";
-          document.getElementById("overlayTitle").textContent = "YOU WIN!";
-          document.getElementById("overlayTitle").style.color = "#0f0";
-          document.exitPointerLock();
-        }
-      }
-    }
-  }
-
-  // --- UPDATE ---
-  function update(dt60) {
-    if (!gameStarted || gameover || gameWon) return;
-
-    // Mouse look
-    player.angle += mouseMovX * MOUSE_SENS;
-    mouseMovX = 0;
-
-    // Keyboard rotation
-    if (keys["ArrowLeft"]) player.angle -= ROT_SPEED * dt60;
-    if (keys["ArrowRight"]) player.angle += ROT_SPEED * dt60;
-
-    // Movement
-    var moveX = 0;
-    var moveY = 0;
-    var moving = false;
-
-    if (keys["KeyW"] || keys["ArrowUp"]) {
-      moveX += Math.cos(player.angle) * MOVE_SPEED;
-      moveY += Math.sin(player.angle) * MOVE_SPEED;
-      moving = true;
-    }
-    if (keys["KeyS"] || keys["ArrowDown"]) {
-      moveX -= Math.cos(player.angle) * MOVE_SPEED;
-      moveY -= Math.sin(player.angle) * MOVE_SPEED;
-      moving = true;
-    }
-    if (keys["KeyA"]) {
-      moveX += Math.cos(player.angle - Math.PI / 2) * MOVE_SPEED;
-      moveY += Math.sin(player.angle - Math.PI / 2) * MOVE_SPEED;
-      moving = true;
-    }
-    if (keys["KeyD"]) {
-      moveX += Math.cos(player.angle + Math.PI / 2) * MOVE_SPEED;
-      moveY += Math.sin(player.angle + Math.PI / 2) * MOVE_SPEED;
-      moving = true;
-    }
-
-    // Apply movement with wall sliding
-    moveX *= dt60;
-    moveY *= dt60;
-
-    if (canMoveTo(player.x + moveX, player.y)) player.x += moveX;
-    if (canMoveTo(player.x, player.y + moveY)) player.y += moveY;
-
-    // Gun bob
-    if (moving) {
-      player.gunBob += 0.12 * dt60 * player.bobDir;
-      if (player.gunBob > 1) player.bobDir = -1;
-      if (player.gunBob < -1) player.bobDir = 1;
-    } else {
-      player.gunBob *= 0.9;
-    }
-
-    // Shooting timer
-    if (player.shooting > 0) player.shooting -= dt60;
-
-    // Enemy AI
-    for (var i = 0; i < enemies.length; i++) {
-      var e = enemies[i];
-
-      if (!e.alive) {
-        if (e.deathTimer > 0) e.deathTimer -= dt60;
-        continue;
-      }
-
-      if (e.hitTimer > 0) e.hitTimer -= dt60;
-      if (e.attackCooldown > 0) e.attackCooldown -= dt60;
-
-      var dx = player.x - e.x;
-      var dy = player.y - e.y;
-      var dist = Math.sqrt(dx * dx + dy * dy);
-
-      // Check if enemy can see player
-      var canSee = dist < 15 && hasLineOfSight(e.x, e.y, player.x, player.y);
-      if (canSee) e.seen = true;
-
-      if (e.seen && dist > 0.6) {
-        // Move toward player
-        var nx = dx / dist;
-        var ny = dy / dist;
-        var spd = e.speed * dt60;
-
-        // Add some randomness to movement
-        nx += (Math.random() - 0.5) * 0.3;
-        ny += (Math.random() - 0.5) * 0.3;
-
-        var newX = e.x + nx * spd;
-        var newY = e.y + ny * spd;
-
-        // Collision with walls
-        if (!isWall(newX, e.y)) e.x = newX;
-        if (!isWall(e.x, newY)) e.y = newY;
-
-        // Collision with other enemies
-        for (var j = 0; j < enemies.length; j++) {
-          if (i === j || !enemies[j].alive) continue;
-          var edx = e.x - enemies[j].x;
-          var edy = e.y - enemies[j].y;
-          var eDist = Math.sqrt(edx * edx + edy * edy);
-          if (eDist < 0.5 && eDist > 0) {
-            e.x += (edx / eDist) * 0.01;
-            e.y += (edy / eDist) * 0.01;
-          }
-        }
-      }
-
-      // Attack player
-      if (dist < 1.0 && e.attackCooldown <= 0 && canSee) {
-        var damage = e.type === 2 ? 12 : (e.type === 1 ? 8 : 5);
-        damage += Math.floor(Math.random() * 5);
-        player.hp -= damage;
-        e.attackCooldown = 40 + Math.random() * 20;
-        playHurtSound();
-
-        // Damage flash
-        var flash = document.getElementById("dmgFlash");
-        flash.style.opacity = "0.6";
-        setTimeout(function() { flash.style.opacity = "0"; }, 150);
-
-        if (player.hp <= 0) {
-          player.hp = 0;
-          gameover = true;
-          document.getElementById("overlay").style.display = "flex";
-          document.getElementById("overlay").className = "dead-overlay";
-          document.getElementById("overlayTitle").textContent = "YOU DIED";
-          document.getElementById("overlayTitle").style.color = "#f00";
-          document.exitPointerLock();
-        }
-      }
-    }
-
-    // Update HUD
-    document.getElementById("hpVal").textContent = Math.max(0, player.hp);
-    var hpColor = player.hp > 60 ? "#0f0" : (player.hp > 30 ? "#ff0" : "#f00");
-    document.querySelector("#hudHp .hud-value").style.color = hpColor;
-  }
-
-  // --- RAYCASTING RENDER ---
-  function render() {
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
-
-    // Ceiling
-    var ceilGrad = ctx.createLinearGradient(0, 0, 0, SCREEN_H / 2);
-    ceilGrad.addColorStop(0, "#111");
-    ceilGrad.addColorStop(1, "#333");
-    ctx.fillStyle = ceilGrad;
-    ctx.fillRect(0, 0, SCREEN_W, SCREEN_H / 2);
-
-    // Floor
-    var floorGrad = ctx.createLinearGradient(0, SCREEN_H / 2, 0, SCREEN_H);
-    floorGrad.addColorStop(0, "#222");
-    floorGrad.addColorStop(1, "#444");
-    ctx.fillStyle = floorGrad;
-    ctx.fillRect(0, SCREEN_H / 2, SCREEN_W, SCREEN_H / 2);
-
-    // Raycasting
-    var zBuffer = new Float64Array(NUM_RAYS);
-
-    for (var i = 0; i < NUM_RAYS; i++) {
-      var rayAngle = player.angle - HALF_FOV + (i / NUM_RAYS) * FOV;
-      var sin = Math.sin(rayAngle);
-      var cos = Math.cos(rayAngle);
-
-      // DDA algorithm
-      var mapX = Math.floor(player.x);
-      var mapY = Math.floor(player.y);
-
-      var deltaDistX = Math.abs(1 / cos);
-      var deltaDistY = Math.abs(1 / sin);
-
-      var stepX, stepY, sideDistX, sideDistY;
-
-      if (cos < 0) {
-        stepX = -1;
-        sideDistX = (player.x - mapX) * deltaDistX;
-      } else {
-        stepX = 1;
-        sideDistX = (mapX + 1 - player.x) * deltaDistX;
-      }
-      if (sin < 0) {
-        stepY = -1;
-        sideDistY = (player.y - mapY) * deltaDistY;
-      } else {
-        stepY = 1;
-        sideDistY = (mapY + 1 - player.y) * deltaDistY;
-      }
-
-      var hit = 0;
-      var side = 0;
-      var wallType = 1;
-
-      while (hit === 0) {
-        if (sideDistX < sideDistY) {
-          sideDistX += deltaDistX;
-          mapX += stepX;
-          side = 0;
-        } else {
-          sideDistY += deltaDistY;
-          mapY += stepY;
-          side = 1;
-        }
-        if (mapX < 0 || mapX >= MAP_W || mapY < 0 || mapY >= MAP_H) { hit = 1; break; }
-        if (MAP[mapY][mapX] > 0) {
-          hit = 1;
-          wallType = MAP[mapY][mapX];
-        }
-      }
-
-      var perpDist;
-      if (side === 0) {
-        perpDist = (mapX - player.x + (1 - stepX) / 2) / cos;
-      } else {
-        perpDist = (mapY - player.y + (1 - stepY) / 2) / sin;
-      }
-
-      // Fix fisheye
-      var correctedDist = perpDist * Math.cos(rayAngle - player.angle);
-      zBuffer[i] = correctedDist;
-
-      if (correctedDist <= 0) correctedDist = 0.01;
-
-      var lineHeight = SCREEN_H / correctedDist;
-      var drawStart = (SCREEN_H - lineHeight) / 2;
-
-      // Wall texture: use hit position for stripe effect
-      var wallX;
-      if (side === 0) {
-        wallX = player.y + perpDist * sin;
-      } else {
-        wallX = player.x + perpDist * cos;
-      }
-      wallX -= Math.floor(wallX);
-
-      // Color with shading
-      var colors = WALL_COLORS[wallType] || [150, 150, 150];
-      var shade = Math.max(0.1, 1 - correctedDist / 14);
-      if (side === 1) shade *= 0.7;
-
-      // Stripe texture effect
-      var texShade = 1;
-      var wx16 = Math.floor(wallX * 16);
-      if (wx16 === 0 || wx16 === 15) texShade = 0.7;
-      if (wx16 === 7 || wx16 === 8) texShade = 0.85;
-
-      var r = Math.floor(colors[0] * shade * texShade);
-      var g = Math.floor(colors[1] * shade * texShade);
-      var b = Math.floor(colors[2] * shade * texShade);
-
-      ctx.fillStyle = "rgb(" + r + "," + g + "," + b + ")";
-      ctx.fillRect(i, drawStart, 1, lineHeight);
-
-      // Wall edge darkening
-      if (wallX < 0.02 || wallX > 0.98) {
-        ctx.fillStyle = "rgba(0,0,0,0.3)";
-        ctx.fillRect(i, drawStart, 1, lineHeight);
-      }
-    }
-
-    // --- RENDER SPRITES (enemies) ---
-    var spriteList = [];
-    for (var i = 0; i < enemies.length; i++) {
-      var e = enemies[i];
-      if (!e.alive && e.deathTimer <= 0) continue;
-      var dx = e.x - player.x;
-      var dy = e.y - player.y;
-      spriteList.push({
-        idx: i,
-        dist: dx * dx + dy * dy,
-        dx: dx,
-        dy: dy
-      });
-    }
-    spriteList.sort(function(a, b) { return b.dist - a.dist; });
-
-    for (var si = 0; si < spriteList.length; si++) {
-      var sp = spriteList[si];
-      var e = enemies[sp.idx];
-      var dist = Math.sqrt(sp.dist);
-
-      var spriteAngle = Math.atan2(sp.dy, sp.dx) - player.angle;
-      while (spriteAngle > Math.PI) spriteAngle -= Math.PI * 2;
-      while (spriteAngle < -Math.PI) spriteAngle += Math.PI * 2;
-
-      if (Math.abs(spriteAngle) > HALF_FOV + 0.3) continue;
-
-      var screenX = SCREEN_W / 2 + (spriteAngle / HALF_FOV) * (SCREEN_W / 2);
-      var spriteHeight = Math.min(SCREEN_H * 1.5, SCREEN_H / dist);
-      var spriteWidth = spriteHeight * 0.6;
-
-      if (e.type === 2) {
-        spriteHeight *= 1.4;
-        spriteWidth *= 1.3;
-      }
-
-      var spriteTop = (SCREEN_H - spriteHeight) / 2;
-      var spriteLeft = screenX - spriteWidth / 2;
-
-      // Calculate perpendicular distance for zbuffer comparison
-      var perpSpriteDist = dist * Math.cos(spriteAngle);
-
-      // Brightness
-      var bright = Math.max(0.15, 1 - dist / 14);
-
-      // Colors based on type
-      var bodyR, bodyG, bodyB, eyeColor;
-      if (e.type === 0) { // Demon - red
-        bodyR = Math.floor(200 * bright);
-        bodyG = Math.floor(50 * bright);
-        bodyB = Math.floor(50 * bright);
-        eyeColor = "rgb(255," + Math.floor(150 * bright) + ",0)";
-      } else if (e.type === 1) { // Imp - yellow/brown
-        bodyR = Math.floor(180 * bright);
-        bodyG = Math.floor(140 * bright);
-        bodyB = Math.floor(40 * bright);
-        eyeColor = "rgb(255," + Math.floor(200 * bright) + ",0)";
-      } else { // Boss - purple
-        bodyR = Math.floor(140 * bright);
-        bodyG = Math.floor(40 * bright);
-        bodyB = Math.floor(180 * bright);
-        eyeColor = "rgb(255," + Math.floor(50 * bright) + "," + Math.floor(50 * bright) + ")";
-      }
-
-      // Hit flash
-      if (e.hitTimer > 0) {
-        bodyR = 255; bodyG = 255; bodyB = 255;
-      }
-
-      // Death - fallen
-      if (!e.alive) {
-        var alpha = e.deathTimer / 30;
-        ctx.globalAlpha = alpha;
-        ctx.fillStyle = "rgb(" + Math.floor(100 * bright) + ",0,0)";
-        ctx.fillRect(spriteLeft, spriteTop + spriteHeight * 0.7, spriteWidth, spriteHeight * 0.15);
-        ctx.globalAlpha = 1;
-        continue;
-      }
-
-      var bodyCol = "rgb(" + bodyR + "," + bodyG + "," + bodyB + ")";
-      var darkCol = "rgb(" + Math.floor(bodyR * 0.6) + "," + Math.floor(bodyG * 0.6) + "," + Math.floor(bodyB * 0.6) + ")";
-
-      // Draw sprite column by column (zbuffer check)
-      // Head
-      var headR = spriteWidth * 0.25;
-      var headCx = screenX;
-      var headCy = spriteTop + spriteHeight * 0.15;
-
-      // Only draw visible columns
-      for (var col = Math.floor(spriteLeft); col < Math.ceil(spriteLeft + spriteWidth); col++) {
-        if (col < 0 || col >= SCREEN_W) continue;
-        if (perpSpriteDist >= zBuffer[col]) continue;
-
-        var relX = (col - spriteLeft) / spriteWidth; // 0 to 1
-
-        // Head (circle approximation)
-        var headLeft = 0.3, headRight = 0.7;
-        if (relX > headLeft && relX < headRight) {
-          var headRelX = (relX - headLeft) / (headRight - headLeft) - 0.5;
-          var headH = Math.sqrt(Math.max(0, 0.25 - headRelX * headRelX)) * 2;
-          var headTop = headCy - headR * headH;
-          var headBot = headCy + headR * headH;
-          ctx.fillStyle = bodyCol;
-          ctx.fillRect(col, headTop, 1, headBot - headTop);
-
-          // Eyes
-          if (relX > 0.38 && relX < 0.46) {
-            var eyeY = headCy - headR * 0.1;
-            ctx.fillStyle = eyeColor;
-            ctx.fillRect(col, eyeY, 1, Math.max(2, spriteWidth * 0.06));
-          }
-          if (relX > 0.54 && relX < 0.62) {
-            var eyeY = headCy - headR * 0.1;
-            ctx.fillStyle = eyeColor;
-            ctx.fillRect(col, eyeY, 1, Math.max(2, spriteWidth * 0.06));
-          }
-        }
-
-        // Horns for demons and boss
-        if (e.type === 0 || e.type === 2) {
-          if (relX > 0.2 && relX < 0.3) {
-            var hornTop = spriteTop;
-            var hornBot = spriteTop + spriteHeight * 0.1;
-            ctx.fillStyle = darkCol;
-            ctx.fillRect(col, hornTop, 1, hornBot - hornTop);
-          }
-          if (relX > 0.7 && relX < 0.8) {
-            var hornTop = spriteTop;
-            var hornBot = spriteTop + spriteHeight * 0.1;
-            ctx.fillStyle = darkCol;
-            ctx.fillRect(col, hornTop, 1, hornBot - hornTop);
-          }
-        }
-
-        // Body
-        var bodyLeft = 0.2, bodyRight = 0.8;
-        if (relX > bodyLeft && relX < bodyRight) {
-          var bodyTop = spriteTop + spriteHeight * 0.28;
-          var bodyBot = spriteTop + spriteHeight * 0.72;
-          ctx.fillStyle = bodyCol;
-          ctx.fillRect(col, bodyTop, 1, bodyBot - bodyTop);
-
-          // Belt/detail
-          var beltY = spriteTop + spriteHeight * 0.5;
-          ctx.fillStyle = darkCol;
-          ctx.fillRect(col, beltY, 1, Math.max(1, spriteHeight * 0.03));
-        }
-
-        // Arms
-        if ((relX > 0.05 && relX < 0.2) || (relX > 0.8 && relX < 0.95)) {
-          var armTop = spriteTop + spriteHeight * 0.3;
-          var armBot = spriteTop + spriteHeight * 0.58;
-          ctx.fillStyle = darkCol;
-          ctx.fillRect(col, armTop, 1, armBot - armTop);
-        }
-
-        // Legs
-        if (relX > 0.25 && relX < 0.42) {
-          var legTop = spriteTop + spriteHeight * 0.72;
-          var legBot = spriteTop + spriteHeight * 0.95;
-          ctx.fillStyle = darkCol;
-          ctx.fillRect(col, legTop, 1, legBot - legTop);
-        }
-        if (relX > 0.58 && relX < 0.75) {
-          var legTop = spriteTop + spriteHeight * 0.72;
-          var legBot = spriteTop + spriteHeight * 0.95;
-          ctx.fillStyle = darkCol;
-          ctx.fillRect(col, legTop, 1, legBot - legTop);
-        }
-      }
-
-      // Health bar for boss
-      if (e.type === 2 && dist < 10) {
-        var barW = spriteWidth * 0.8;
-        var barH = 4;
-        var barX = screenX - barW / 2;
-        var barY = spriteTop - 10;
-        ctx.fillStyle = "#300";
-        ctx.fillRect(barX, barY, barW, barH);
-        ctx.fillStyle = "#f00";
-        ctx.fillRect(barX, barY, barW * (e.hp / e.maxHp), barH);
-      }
-    }
-
-    // --- WEAPON ---
-    var gunOffY = player.gunBob * 5;
-    var gunKick = player.shooting > 0 ? Math.max(0, player.shooting) * 3 : 0;
-
-    // Gun body
-    var gunX = SCREEN_W / 2 + 30;
-    var gunY = SCREEN_H - 100 + gunOffY + gunKick;
-
-    // Shadow
-    ctx.fillStyle = "rgba(0,0,0,0.4)";
-    ctx.fillRect(gunX - 5, gunY + 5, 25, 105);
-
-    // Barrel
-    ctx.fillStyle = "#555";
-    ctx.fillRect(gunX, gunY - 20, 18, 100);
-    ctx.fillStyle = "#777";
-    ctx.fillRect(gunX + 2, gunY - 20, 14, 80);
-
-    // Barrel hole
-    ctx.fillStyle = "#222";
-    ctx.beginPath();
-    ctx.arc(gunX + 9, gunY - 20, 5, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Handle
-    ctx.fillStyle = "#664422";
-    ctx.fillRect(gunX - 8, gunY + 50, 34, 55);
-    ctx.fillStyle = "#553311";
-    ctx.fillRect(gunX - 5, gunY + 55, 28, 45);
-
-    // Trigger guard
-    ctx.strokeStyle = "#444";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(gunX + 9, gunY + 55, 8, 0, Math.PI);
-    ctx.stroke();
-
-    // Muzzle flash
-    if (player.shooting > 4) {
-      var flashSize = 25 + Math.random() * 15;
-      ctx.fillStyle = "rgba(255,200,50,0.9)";
-      ctx.beginPath();
-      ctx.arc(gunX + 9, gunY - 25, flashSize, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "rgba(255,255,200,0.8)";
-      ctx.beginPath();
-      ctx.arc(gunX + 9, gunY - 25, flashSize * 0.5, 0, Math.PI * 2);
-      ctx.fill();
-      // Light rays
-      ctx.strokeStyle = "rgba(255,220,100,0.4)";
-      ctx.lineWidth = 2;
-      for (var r = 0; r < 6; r++) {
-        var rAngle = r * Math.PI / 3 + Math.random() * 0.3;
-        ctx.beginPath();
-        ctx.moveTo(gunX + 9, gunY - 25);
-        ctx.lineTo(
-          gunX + 9 + Math.cos(rAngle) * flashSize * 1.5,
-          gunY - 25 + Math.sin(rAngle) * flashSize * 1.5
-        );
-        ctx.stroke();
-      }
-    }
-
-    // Minimap
-    if (showMinimap) renderMinimap();
-  }
-
-  // --- MINIMAP ---
-  function renderMinimap() {
-    var scale = 160 / Math.max(MAP_W, MAP_H);
-    mctx.fillStyle = "rgba(0,0,0,0.8)";
-    mctx.fillRect(0, 0, 160, 160);
-
-    for (var y = 0; y < MAP_H; y++) {
-      for (var x = 0; x < MAP_W; x++) {
-        if (MAP[y][x] > 0) {
-          var colors = WALL_COLORS[MAP[y][x]] || [150, 150, 150];
-          mctx.fillStyle = "rgb(" + colors[0] + "," + colors[1] + "," + colors[2] + ")";
-          mctx.fillRect(x * scale, y * scale, scale, scale);
-        }
-      }
-    }
-
-    // Enemies
-    for (var i = 0; i < enemies.length; i++) {
-      var e = enemies[i];
-      if (!e.alive) continue;
-      mctx.fillStyle = e.type === 0 ? "#f00" : (e.type === 1 ? "#ff0" : "#f0f");
-      mctx.fillRect(e.x * scale - 2, e.y * scale - 2, 4, 4);
-    }
-
-    // Player
-    mctx.fillStyle = "#0f0";
-    mctx.fillRect(player.x * scale - 2, player.y * scale - 2, 4, 4);
-
-    // Direction
-    mctx.strokeStyle = "#0f0";
-    mctx.lineWidth = 1;
-    mctx.beginPath();
-    mctx.moveTo(player.x * scale, player.y * scale);
-    mctx.lineTo(
-      player.x * scale + Math.cos(player.angle) * 10,
-      player.y * scale + Math.sin(player.angle) * 10
-    );
-    mctx.stroke();
-  }
-
-  // --- MAIN LOOP ---
-  function gameLoop(timestamp) {
-    if (lastTime === 0) lastTime = timestamp;
-    dt = (timestamp - lastTime) / 16.67; // normalize to ~60fps
-    if (dt > 3) dt = 3; // cap delta
-    lastTime = timestamp;
-
-    update(dt);
-    render();
-    requestAnimationFrame(gameLoop);
-  }
-
-  // --- RESIZE ---
-  function resize() {
-    var maxW = window.innerWidth;
-    var maxH = window.innerHeight - 60; // account for HUD
-    var scale = Math.min(maxW / SCREEN_W, maxH / SCREEN_H);
-
-    canvas.style.width = Math.floor(SCREEN_W * scale) + "px";
-    canvas.style.height = Math.floor(SCREEN_H * scale) + "px";
-    canvas.style.marginLeft = Math.floor((maxW - SCREEN_W * scale) / 2) + "px";
-    canvas.style.marginTop = Math.floor((maxH - SCREEN_H * scale) / 2) + "px";
-  }
-
-  window.addEventListener("resize", resize);
-  resize();
-
-  requestAnimationFrame(gameLoop);
-})();
-</script>
-</body>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>MicroDOOM</title>
+        <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { background: #000; overflow: hidden; font-family: monospace; }
+            #gameCanvas { display: block; image-rendering: pixelated; }
+            #startScreen {
+                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                display: flex; flex-direction: column; align-items: center; justify-content: center;
+                background: #000; z-index: 100; cursor: pointer;
+            }
+            #startScreen h1 {
+                font-size: 64px; color: #c00; text-shadow: 0 0 30px #f00, 0 4px 0 #600;
+                letter-spacing: 8px; margin-bottom: 10px;
+            }
+            #startScreen .sub { color: #888; font-size: 14px; margin-bottom: 40px; letter-spacing: 2px; }
+            #startScreen .controls { color: #aaa; font-size: 13px; line-height: 2; text-align: center; }
+            #startScreen .controls span { color: #ff0; }
+            #startScreen .start-btn {
+                margin-top: 30px; padding: 12px 40px; font-size: 20px; font-family: monospace;
+                background: #c00; color: #fff; border: none; cursor: pointer;
+                letter-spacing: 4px; text-transform: uppercase;
+            }
+            #startScreen .start-btn:hover { background: #f00; }
+            #difficultyPicker {
+                margin-top: 24px; text-align: center; width: 320px;
+            }
+            #diffLabel {
+                font-size: 24px; color: #ff0; letter-spacing: 4px; font-weight: bold;
+                margin-bottom: 4px;
+            }
+            #diffDesc {
+                font-size: 12px; color: #888; margin-bottom: 12px; min-height: 30px;
+                line-height: 1.4;
+            }
+            #diffSlider {
+                -webkit-appearance: none; appearance: none; width: 260px; height: 6px;
+                background: #444; border-radius: 3px; outline: none;
+            }
+            #diffSlider::-webkit-slider-thumb {
+                -webkit-appearance: none; width: 18px; height: 18px;
+                background: #c00; border-radius: 50%; cursor: pointer;
+            }
+            #diffNames {
+                display: flex; justify-content: space-between; width: 260px;
+                margin: 6px auto 0; font-size: 10px; color: #666; letter-spacing: 1px;
+            }
+            #hud {
+                position: fixed; bottom: 0; left: 0; width: 100%; height: 60px;
+                background: linear-gradient(to bottom, #333, #111);
+                border-top: 2px solid #555;
+                display: flex; align-items: center; justify-content: space-around;
+                z-index: 10; display: none;
+            }
+            .hud-item { text-align: center; }
+            .hud-label { color: #888; font-size: 11px; letter-spacing: 2px; }
+            .hud-value { color: #fff; font-size: 28px; font-weight: bold; }
+            #hudHp .hud-value { color: #0f0; }
+            #hudKills .hud-value { color: #ff0; }
+            #hudAmmo .hud-value { color: #0af; }
+            #overlay {
+                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                display: none; align-items: center; justify-content: center;
+                z-index: 50; flex-direction: column;
+            }
+            #overlay.dead-overlay { background: rgba(100,0,0,0.7); }
+            #overlay.win-overlay { background: rgba(0,50,0,0.7); }
+            #overlay.win-overlay #overlayMsg { display: none; }
+            #overlay h2 { font-size: 48px; color: #fff; text-shadow: 0 0 20px currentColor; margin-bottom: 20px; }
+            #overlay p { color: #ccc; font-size: 16px; cursor: pointer; }
+            #creditsWrap {
+                position: relative; width: 100%; max-width: 400px;
+                height: 300px; overflow: hidden; margin-top: 10px;
+                mask-image: linear-gradient(transparent, #000 15%, #000 85%, transparent);
+                -webkit-mask-image: linear-gradient(transparent, #000 15%, #000 85%, transparent);
+            }
+            #creditsScroll {
+                position: absolute; width: 100%; text-align: center;
+                animation: scrollCredits 30s linear infinite;
+            }
+            #creditsScroll .credit-line {
+                color: #ccc; font-size: 14px; line-height: 2.2; letter-spacing: 1px;
+            }
+            #creditsScroll .credit-line.heading {
+                color: #ff0; font-size: 16px; font-weight: bold; margin-top: 12px;
+            }
+            @keyframes scrollCredits {
+                0%   { transform: translateY(100%); }
+                100% { transform: translateY(-100%); }
+            }
+            #minimap {
+                position: fixed; top: 10px; right: 10px; z-index: 10; display: none;
+                border: 1px solid #555; opacity: 0.8;
+            }
+            #crosshair {
+                position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                z-index: 10; display: none; pointer-events: none;
+            }
+            #dmgFlash {
+                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                pointer-events: none; z-index: 9; opacity: 0;
+                background: radial-gradient(ellipse at center, transparent 30%, rgba(255,0,0,0.6) 100%);
+                transition: opacity 0.1s;
+            }
+            #versionLabel {
+                position: fixed; bottom: 68px; right: 8px;
+                z-index: 11; pointer-events: none;
+                font-size: 11px; color: rgba(255,255,255,0.35);
+                background: rgba(0,0,0,0.25);
+                backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+                padding: 2px 7px; border-radius: 3px;
+                letter-spacing: 1px; display: none;
+            }
+            #devModeLabel {
+                position: fixed; bottom: 84px; right: 8px;
+                z-index: 12; pointer-events: none;
+                font-size: 28px; font-weight: bold; color: #f00;
+                text-shadow: 0 0 12px #f00, 0 0 24px #f00, 0 0 40px #c00;
+                letter-spacing: 4px; display: none;
+                animation: devPulse 1.5s ease-in-out infinite;
+            }
+            @keyframes devPulse {
+                0%, 100% { opacity: 1; }
+                50% { opacity: 0.6; }
+            }
+            #devPanel {
+                position: fixed; top: 10px; left: 10px;
+                z-index: 300; display: none;
+                background: rgba(20,0,0,0.92); border: 2px solid #f00;
+                border-radius: 8px; padding: 16px 20px;
+                font-family: monospace; color: #fff; font-size: 12px;
+                max-height: 90vh; overflow-y: auto;
+                box-shadow: 0 0 30px rgba(255,0,0,0.3);
+                min-width: 320px;
+            }
+            #devPanel h3 {
+                color: #f00; font-size: 16px; letter-spacing: 3px;
+                margin-bottom: 12px; text-align: center;
+                text-shadow: 0 0 8px #f00;
+            }
+            #devPanel .dev-row {
+                display: flex; align-items: center; justify-content: space-between;
+                margin-bottom: 10px; gap: 8px;
+            }
+            #devPanel .dev-label {
+                color: #aaa; font-size: 11px; letter-spacing: 1px; min-width: 100px;
+            }
+            #devPanel .dev-controls {
+                display: flex; align-items: center; gap: 6px;
+            }
+            #devPanel input[type="range"] {
+                -webkit-appearance: none; appearance: none; width: 100px; height: 5px;
+                background: #444; border-radius: 3px; outline: none;
+            }
+            #devPanel input[type="range"]::-webkit-slider-thumb {
+                -webkit-appearance: none; width: 12px; height: 12px;
+                background: #f00; border-radius: 50%; cursor: pointer;
+            }
+            #devPanel input[type="number"] {
+                width: 58px; background: #222; border: 1px solid #555;
+                color: #fff; font-family: monospace; font-size: 11px;
+                padding: 2px 4px; border-radius: 3px; text-align: right;
+            }
+            #devPanel .dev-section {
+                color: #f44; font-size: 11px; letter-spacing: 2px; font-weight: bold;
+                margin: 12px 0 6px; border-bottom: 1px solid #333; padding-bottom: 3px;
+            }
+            #devPanel .dev-btn {
+                padding: 4px 12px; font-size: 11px; font-family: monospace;
+                background: #300; color: #f88; border: 1px solid #f00;
+                cursor: pointer; border-radius: 3px; letter-spacing: 1px;
+            }
+            #devPanel .dev-btn:hover { background: #500; color: #fff; }
+            #devPanel .dev-close {
+                position: absolute; top: 6px; right: 10px;
+                color: #f00; cursor: pointer; font-size: 18px; font-weight: bold;
+            }
+            #devPanel .dev-close:hover { color: #fff; }
+            #pauseMenu {
+                position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                display: none; align-items: center; justify-content: center;
+                z-index: 200; flex-direction: column;
+                background: rgba(0,0,0,0.65);
+                backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+            }
+            #pauseMenu h2 {
+                font-size: 42px; color: #c00; letter-spacing: 6px;
+                text-shadow: 0 0 20px #f00; margin-bottom: 30px;
+            }
+            #pauseMenu .settings-panel {
+                background: rgba(30,30,30,0.85); border: 1px solid #444;
+                border-radius: 6px; padding: 24px 32px; min-width: 340px;
+            }
+            #pauseMenu .setting-row {
+                display: flex; align-items: center; justify-content: space-between;
+                margin-bottom: 16px; gap: 12px;
+            }
+            #pauseMenu .setting-row:last-child { margin-bottom: 0; }
+            #pauseMenu .setting-label {
+                color: #aaa; font-size: 13px; letter-spacing: 1px; min-width: 100px;
+            }
+            #pauseMenu .setting-control { display: flex; align-items: center; gap: 8px; }
+            #pauseMenu input[type="range"] {
+                -webkit-appearance: none; appearance: none; width: 130px; height: 6px;
+                background: #444; border-radius: 3px; outline: none;
+            }
+            #pauseMenu input[type="range"]::-webkit-slider-thumb {
+                -webkit-appearance: none; width: 14px; height: 14px;
+                background: #c00; border-radius: 50%; cursor: pointer;
+            }
+            #pauseMenu .setting-val {
+                color: #fff; font-size: 13px; min-width: 48px; text-align: right;
+            }
+            #pauseMenu .res-btns { display: flex; gap: 6px; }
+            #pauseMenu .res-btn {
+                padding: 4px 10px; font-size: 12px; font-family: monospace;
+                background: #333; color: #aaa; border: 1px solid #555;
+                cursor: pointer; border-radius: 3px;
+            }
+            #pauseMenu .res-btn:hover { background: #444; color: #fff; }
+            #pauseMenu .res-btn.active { background: #c00; color: #fff; border-color: #f00; }
+            #pauseMenu .resume-hint {
+                color: #666; font-size: 12px; text-align: center;
+                margin-top: 20px; letter-spacing: 1px;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="startScreen">
+        <h1>MICRODOOM</h1>
+        <div class="controls">
+            <span>WASD</span> / <span>Arrow Keys</span> — Move &amp; Strafe<br>
+            <span>Mouse</span> — Look around<br>
+            <span>Left Click</span> — Shoot<br>
+            <span>M</span> — Toggle minimap<br>
+            <span>ESC</span> — Pause / Settings
+        </div>
+        <div id="difficultyPicker">
+            <div id="diffLabel">MEDIUM</div>
+            <div id="diffDesc">Standard challenge. 100 enemies with balanced stats.</div>
+            <input type="range" id="diffSlider" min="0" max="3" value="1" step="1">
+            <div id="diffNames"><span>EASY</span><span>MEDIUM</span><span>HARD</span><span>EXTREME</span></div>
+        </div>
+        <button class="start-btn" id="startBtn">CLICK TO PLAY</button>
+        </div>
+
+        <canvas id="gameCanvas"></canvas>
+        <canvas id="minimap" width="160" height="160"></canvas>
+
+        <svg id="crosshair" width="30" height="30" viewBox="0 0 30 30">
+        <line x1="15" y1="5" x2="15" y2="12" stroke="#0f0" stroke-width="2"/>
+        <line x1="15" y1="18" x2="15" y2="25" stroke="#0f0" stroke-width="2"/>
+        <line x1="5" y1="15" x2="12" y2="15" stroke="#0f0" stroke-width="2"/>
+        <line x1="18" y1="15" x2="25" y2="15" stroke="#0f0" stroke-width="2"/>
+        <circle cx="15" cy="15" r="1" fill="#0f0"/>
+        </svg>
+
+        <div id="dmgFlash"></div>
+
+        <div id="hud">
+        <div class="hud-item" id="hudHp">
+            <div class="hud-label">HEALTH</div>
+            <div class="hud-value"><span id="hpVal">100</span>%</div>
+        </div>
+        <div class="hud-item" id="hudKills">
+            <div class="hud-label">KILLS</div>
+            <div class="hud-value" style="font-size:14px;line-height:1.4"><span style="color:#f44" id="demonKills">0</span>/<span id="demonTotal">0</span> Demons<br><span style="color:#ff0" id="impKills">0</span>/<span id="impTotal">0</span> Imps<br><span style="color:#f0f" id="bossKills">0</span>/<span id="bossTotal">0</span> Bosses</div>
+        </div>
+        <div class="hud-item" id="hudDiff">
+            <div class="hud-label">DIFF</div>
+            <div class="hud-value" style="font-size:16px"><span id="diffHudVal">MEDIUM</span></div>
+        </div>
+        <div class="hud-item" id="hudGear">
+            <div class="hud-label">GEAR</div>
+            <div class="hud-value"><span id="gearVal">GUN</span></div>
+        </div>
+        <div class="hud-item" id="hudAmmo">
+            <div class="hud-label">AMMO</div>
+            <div class="hud-value">&infin;</div>
+        </div>
+        </div>
+
+        <div id="versionLabel"></div>
+        <div id="devModeLabel">DEV MODE ACTIVATED</div>
+
+        <div id="devPanel">
+            <span class="dev-close" id="devPanelClose">&times;</span>
+            <h3>DEV MODE</h3>
+
+            <div class="dev-section">PLAYER</div>
+            <div class="dev-row">
+                <span class="dev-label">HEALTH</span>
+                <div class="dev-controls">
+                    <input type="range" id="devHp" min="1" max="9999" value="300">
+                    <input type="number" id="devHpVal" min="1" max="9999" value="300">
+                </div>
+            </div>
+            <div class="dev-row">
+                <span class="dev-label">MOVE SPEED</span>
+                <div class="dev-controls">
+                    <input type="range" id="devSpeed" min="1" max="500" value="75">
+                    <input type="number" id="devSpeedVal" min="1" max="500" value="75">
+                </div>
+            </div>
+            <div class="dev-row">
+                <span class="dev-label">GOD MODE</span>
+                <div class="dev-controls">
+                    <button class="dev-btn" id="devGodMode">OFF</button>
+                </div>
+            </div>
+
+            <div class="dev-section">WEAPONS</div>
+            <div class="dev-row">
+                <span class="dev-label">GUN DAMAGE</span>
+                <div class="dev-controls">
+                    <input type="range" id="devGunDmg" min="1" max="500" value="8">
+                    <input type="number" id="devGunDmgVal" min="1" max="500" value="8">
+                </div>
+            </div>
+            <div class="dev-row">
+                <span class="dev-label">KNIFE DAMAGE</span>
+                <div class="dev-controls">
+                    <input type="range" id="devKnifeDmg" min="1" max="500" value="20">
+                    <input type="number" id="devKnifeDmgVal" min="1" max="500" value="20">
+                </div>
+            </div>
+            <div class="dev-row">
+                <span class="dev-label">KILL HP REWARD</span>
+                <div class="dev-controls">
+                    <input type="range" id="devKillHp" min="0" max="500" value="25">
+                    <input type="number" id="devKillHpVal" min="0" max="500" value="25">
+                </div>
+            </div>
+
+            <div class="dev-section">SHIELD</div>
+            <div class="dev-row">
+                <span class="dev-label">REDUCTION %</span>
+                <div class="dev-controls">
+                    <input type="range" id="devShieldPct" min="0" max="100" value="90">
+                    <input type="number" id="devShieldPctVal" min="0" max="100" value="90">
+                </div>
+            </div>
+
+            <div class="dev-section">ENEMIES</div>
+            <div class="dev-row">
+                <span class="dev-label">ENEMY SPEED %</span>
+                <div class="dev-controls">
+                    <input type="range" id="devEnemySpd" min="0" max="500" value="100">
+                    <input type="number" id="devEnemySpdVal" min="0" max="500" value="100">
+                </div>
+            </div>
+            <div class="dev-row">
+                <span class="dev-label">ENEMY DMG %</span>
+                <div class="dev-controls">
+                    <input type="range" id="devEnemyDmg" min="0" max="500" value="100">
+                    <input type="number" id="devEnemyDmgVal" min="0" max="500" value="100">
+                </div>
+            </div>
+
+            <div class="dev-section">ACTIONS</div>
+            <div class="dev-row" style="justify-content: center; gap: 10px;">
+                <button class="dev-btn" id="devKillAll">KILL ALL</button>
+                <button class="dev-btn" id="devTeleportSpawn">TELEPORT SPAWN</button>
+                <button class="dev-btn" id="devRefillHp">MAX HP</button>
+            </div>
+        </div>
+
+        <div id="pauseMenu">
+            <h2>PAUSED</h2>
+            <div class="settings-panel">
+                <div class="setting-row">
+                    <span class="setting-label">RESOLUTION</span>
+                    <div class="res-btns">
+                        <button class="res-btn" data-res="320x200">320x200</button>
+                        <button class="res-btn active" data-res="640x400">640x400</button>
+                        <button class="res-btn" data-res="960x600">960x600</button>
+                        <button class="res-btn" data-res="1280x800">1280x800</button>
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <span class="setting-label">FOV</span>
+                    <div class="setting-control">
+                        <input type="range" id="fovSlider" min="40" max="120" value="60">
+                        <span class="setting-val" id="fovVal">60&deg;</span>
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <span class="setting-label">MOUSE SENS</span>
+                    <div class="setting-control">
+                        <input type="range" id="sensSlider" min="10" max="300" value="100">
+                        <span class="setting-val" id="sensVal">100%</span>
+                    </div>
+                </div>
+            </div>
+            <p class="resume-hint">Click anywhere to resume</p>
+        </div>
+
+        <div id="overlay">
+        <h2 id="overlayTitle"></h2>
+        <div id="creditsWrap" style="display:none"><div id="creditsScroll"></div></div>
+        <p id="overlayMsg">Click to restart</p>
+        </div>
+
+        <script>
+            (function() {
+            "use strict";
+
+            var GAME_VERSION = "v1.12.0";
+            var DEV_MODE = false;
+
+            // --- DEV MODE TUNABLES ---
+            var DEV = {
+                gunDamage: 8,
+                knifeDamage: 20,
+                killHpReward: 25,
+                maxHp: 300,
+                shieldReduction: 0.9,  // 90% reduction
+                enemySpeedMult: 1.0,
+                enemyDmgMult: 1.0,
+                godMode: false
+            };
+
+            // --- CREDITS (edit this array to change credits) ---
+            var CREDITS = [
+                {heading: true, text: "MICRODOOM"},
+                {text: "A FlavourTown Production"},
+                {text: ""},
+                {heading: true, text: "CREATED BY"},
+                {text: "kmadsdev"},
+                {text: ""},
+                {heading: true, text: "BUILT WITH"},
+                {text: "Vanilla JavaScript"},
+                {text: "HTML5 Canvas"},
+                {text: "Web Audio API"},
+                {text: ""},
+                {heading: true, text: "INSPIRED BY"},
+                {text: "DOOM (1993) by id Software"},
+                {text: ""},
+                {heading: true, text: "SPECIAL THANKS"},
+                {text: "HackClub"},
+                {text: "The DOOM Community"},
+                {text: ""},
+                {text: ""},
+                {heading: true, text: "THANKS FOR PLAYING!"}
+            ];
+
+            // --- CONFIGURATION ---
+            var SCREEN_W = 640;
+            var SCREEN_H = 400;
+
+            var MOVE_SPEED = 0.075;
+            var ROT_SPEED =  0.06;
+            var MOUSE_SENS = 0.005;
+            var PLAYER_RADIUS = 0.15;
+
+            var FOV = Math.PI / 3;
+            var HALF_FOV = FOV / 2;
+            var NUM_RAYS = SCREEN_W;
+
+            // --- MAP ---
+            // 0=empty, 1=gray wall, 2=red wall, 3=blue wall, 4=green wall, 5=brown wall
+            var MAP = [
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+                [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                [1,0,2,0,2,0,3,0,3,0,4,0,4,0,5,0,5,0,2,0,2,0,3,0,3,0,0,4,0,4,0,5,0,5,0,2,0,2,0,3,0,3,0,4,0,4,0,1],
+                [1,0,2,2,2,0,3,3,3,0,4,4,4,0,5,5,5,0,2,2,2,0,3,3,3,0,0,4,4,4,0,5,5,5,0,2,2,2,0,3,3,3,0,4,4,4,0,1],
+                [1,0,2,2,2,2,2,2,2,0,3,3,3,3,3,3,3,0,4,4,4,4,4,4,4,0,0,5,5,5,5,5,5,5,0,2,2,2,2,2,2,2,0,3,3,3,0,1],
+                [1,0,2,2,2,0,2,2,2,2,2,2,2,0,2,2,2,0,3,3,3,3,3,3,3,0,0,3,3,3,3,3,3,3,0,4,4,4,0,4,4,4,4,0,4,4,0,1],
+                [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                [1,5,5,5,0,2,2,2,0,3,3,3,0,4,4,4,0,5,5,5,0,2,2,2,0,3,3,3,0,4,4,4,0,5,5,5,0,2,2,2,0,3,3,3,0,4,4,1],
+                [1,0,0,5,0,2,0,0,0,0,0,3,0,4,0,0,0,0,0,5,0,2,0,0,0,0,0,3,0,4,0,0,0,0,0,5,0,2,0,0,0,0,0,3,0,4,4,1],
+                [1,5,0,5,0,2,0,2,0,3,0,3,0,4,0,4,0,5,0,5,0,2,0,2,0,3,0,3,0,4,0,4,0,5,0,5,0,2,0,2,0,3,0,3,0,4,4,1],
+                [1,5,0,5,0,2,0,2,0,3,0,3,0,4,0,4,0,5,0,5,0,2,0,2,0,3,0,3,0,4,0,4,0,5,0,5,0,2,0,2,0,3,0,3,0,4,4,1],
+                [1,5,0,0,0,0,0,2,0,3,0,0,0,0,0,4,0,5,0,0,0,0,0,2,0,3,0,0,0,0,0,4,0,5,0,0,0,0,0,2,0,3,0,0,0,4,4,1],
+                [1,5,5,5,0,2,2,2,0,3,3,3,0,4,4,4,0,5,5,5,0,2,2,2,0,3,3,3,0,4,4,4,0,5,5,5,0,2,2,2,0,3,3,3,0,4,4,1],
+                [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                [1,0,0,0,0,0,1,1,1,1,1,1,1,2,2,2,2,2,2,2,2,3,3,3,3,3,3,3,3,4,4,4,4,4,4,4,4,4,5,5,5,5,5,5,5,5,5,1],
+                [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,5,2,2,5,2,2,5,2,5,2,5,2,2,5,5,5,2,2,5,5,2,2,2,5,5,5,1],
+                [1,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,0,0,2,5,5,2,2,2,2,5,5,2,5,5,2,2,5,2,5,2,2,5,2,5,2,2,5,2,2,1],
+                [1,5,5,5,5,5,5,5,5,5,5,5,0,0,0,0,0,0,0,0,2,5,2,5,2,2,2,5,2,2,2,5,2,2,5,5,5,2,2,5,2,5,2,2,2,2,5,1],
+                [1,5,5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,2,5,2,2,5,2,2,5,2,2,2,5,2,2,5,2,5,2,2,5,5,2,2,2,5,5,5,1],
+                [1,5,0,0,0,0,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1],
+                [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                [1,0,0,0,0,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,5,1],
+                [1,0,0,0,5,5,5,5,5,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,5,5,5,5,0,0,0,0,0,0,0,0,5,5,0,0,0,5,5,5,1],
+                [1,0,0,5,5,5,0,0,0,0,5,0,5,0,5,5,5,5,5,0,5,0,5,5,5,5,0,5,0,0,0,0,5,5,5,5,5,5,0,0,5,0,5,0,5,5,5,1],
+                [1,0,0,0,0,0,0,5,5,5,5,0,5,0,5,0,0,0,0,0,5,5,5,0,5,5,0,0,0,5,5,0,5,0,0,0,0,0,5,0,0,0,5,0,5,5,5,1],
+                [1,5,5,0,5,5,0,0,0,0,0,0,0,0,0,0,0,5,5,5,5,5,0,5,0,5,5,5,5,0,5,5,0,5,5,0,5,5,0,0,0,5,0,0,0,0,5,1],
+                [1,5,5,0,0,0,5,0,0,0,0,0,5,5,5,5,5,5,5,5,5,0,0,0,0,0,0,0,0,0,0,0,5,5,0,0,5,5,5,5,5,5,5,5,5,0,3,1],
+                [1,0,5,2,2,2,3,3,3,3,3,4,4,4,0,0,5,5,5,2,2,2,5,5,3,3,3,4,4,5,5,5,5,5,5,2,2,2,0,0,3,3,3,0,0,0,3,1],
+                [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                [1,0,0,2,0,3,4,4,5,5,5,2,0,3,4,4,5,5,5,2,0,3,4,4,5,5,5,2,0,3,4,4,5,5,5,2,0,3,4,4,5,5,5,2,3,3,4,1],
+                [1,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,3,0,0,0,0,0,5,1],
+                [1,0,0,2,3,3,4,0,5,0,0,2,2,3,4,0,5,0,0,2,2,3,4,0,5,0,0,2,2,3,4,0,5,0,0,2,3,3,4,0,5,0,0,2,0,0,4,1],
+                [1,0,0,3,0,0,0,0,4,0,0,4,0,0,0,0,5,0,0,2,0,0,0,0,3,0,0,4,0,0,0,0,5,0,0,2,0,0,0,0,3,0,0,4,0,0,5,1],
+                [1,0,0,2,0,2,2,3,3,0,0,4,0,4,5,0,5,0,0,2,0,2,3,0,3,0,0,4,0,4,5,0,5,0,0,2,0,2,3,0,3,0,0,4,0,0,5,1],
+                [1,0,0,2,0,0,0,0,3,3,4,4,0,0,0,0,5,4,2,2,0,0,0,0,3,3,4,4,0,0,0,0,5,4,2,2,0,0,0,0,0,0,0,4,4,0,5,1],
+                [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                [1,1,2,0,3,0,4,0,5,0,2,0,3,0,4,0,5,0,2,0,3,0,4,0,5,0,2,0,3,0,4,0,5,0,2,0,3,0,4,0,5,0,2,0,3,0,5,1],
+                [1,1,2,0,3,0,4,0,5,0,2,0,3,0,4,0,5,0,2,0,3,0,4,0,5,0,2,0,3,0,4,0,5,0,2,0,3,0,4,0,5,0,2,0,3,0,5,1],
+                [1,1,3,0,2,0,5,0,4,0,3,0,2,0,5,0,4,0,3,0,2,0,5,0,4,0,3,0,2,0,5,0,4,0,3,0,2,0,5,0,4,0,3,0,2,0,4,1],
+                [1,1,2,0,3,0,4,0,5,0,2,0,3,0,4,0,5,0,2,0,3,0,4,0,5,0,2,0,3,0,4,0,5,0,2,0,3,0,4,0,5,0,2,0,3,0,5,1],
+                [1,1,3,0,2,0,5,0,4,0,3,0,2,0,5,0,4,0,3,0,2,0,5,0,4,0,3,0,2,0,5,0,4,0,3,0,2,0,5,0,4,0,3,0,2,0,4,1],
+                [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                [1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1],
+                [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+            ]
+            var MAP_H = MAP.length;
+            var MAP_W = MAP[0].length;
+
+            // Wall colors: [base_r, base_g, base_b]
+            var WALL_COLORS = {
+                1: [160, 160, 160],
+                2: [180, 50,  50],
+                3: [50,  80,  180],
+                4: [50,  160, 50],
+                5: [160, 120, 60]
+            };
+
+            // --- PLAYER STATE ---
+            var BASE_MOVE_SPEED = MOVE_SPEED;
+
+            // Gear: 0=gun, 1=knife, 2=shield
+            var GEAR_GUN = 0;
+            var GEAR_KNIFE = 1;
+            var GEAR_SHIELD = 2;
+            var GEAR_NAMES = ["GUN", "KNIFE", "SHIELD"];
+
+            // --- DIFFICULTY ---
+            var DIFF_NAMES = ["EASY", "MEDIUM", "HARD", "EXTREME"];
+            var DIFF_DESCS = [
+                "A relaxing stroll through hell. 50 enemies, weak and slow.",
+                "Standard challenge. 100 enemies with balanced stats.",
+                "Pain and suffering await. 150 enemies, tougher and faster.",
+                "Nightmare fuel. 250 enemies at 110-150% speed, devastating damage."
+            ];
+            var DIFF_COLORS = ["#0f0", "#ff0", "#f80", "#f00"];
+            var DIFF_COUNTS = [50, 100, 150, 250];
+            // Ratios: 60% demons, 30% imps, 10% bosses
+            var currentDifficulty = 1; // default MEDIUM
+
+            var player = {
+                hp: 300,
+                x: 1.5,
+                y: 1.5,
+                angle: 0,
+                kills: 0,
+                killsByType: [0, 0, 0],
+                shooting: 0,
+                gunBob: 0,
+                bobDir: 1,
+                gear: GEAR_GUN
+            };
+
+            // --- ENEMIES ---
+            function makeEnemy(x, y, hp, speed, type) {
+                return {
+                    x: x, y: y, hp: hp, maxHp: hp, speed: speed,
+                    type: type, // 0=demon(red), 1=imp(yellow), 2=boss(purple)
+                    alive: true,
+                    hitTimer: 0,
+                    attackCooldown: 0,
+                    deathTimer: 0,
+                    seen: false
+                };
+            }
+
+            // --- FIND VALID SPAWN POSITIONS ---
+            function findZeroPositions(matrix) {
+                var positions = [];
+                for (var y = 0; y < matrix.length; y++) {
+                    for (var x = 0; x < matrix[y].length; x++) {
+                        if (matrix[y][x] === 0) positions.push([x, y]);
+                    }
+                }
+                return positions;
+            }
+
+            var SPAWN_POSITIONS = findZeroPositions(MAP);
+
+            function initEnemies() {
+                var diff = currentDifficulty;
+                var total = DIFF_COUNTS[diff];
+                var nDemons = Math.round(total * 0.6);
+                var nImps   = Math.round(total * 0.3);
+                var nBosses = total - nDemons - nImps;
+
+                // Player spawns at ~2.5, 2.5
+                var spawnX = 2.5, spawnY = 2.5;
+                var minDist = 15;
+
+                // Filter positions at least 15 blocks from spawn
+                var valid = [];
+                for (var i = 0; i < SPAWN_POSITIONS.length; i++) {
+                    var p = SPAWN_POSITIONS[i];
+                    var dx = p[0] - spawnX, dy = p[1] - spawnY;
+                    if (Math.sqrt(dx * dx + dy * dy) >= minDist) valid.push(p);
+                }
+
+                // Shuffle valid positions
+                for (var i = valid.length - 1; i > 0; i--) {
+                    var j = Math.floor(Math.random() * (i + 1));
+                    var tmp = valid[i]; valid[i] = valid[j]; valid[j] = tmp;
+                }
+
+                // Track occupancy (max 2 per cell)
+                var cellCount = {};
+                function cellKey(x, y) { return x + "," + y; }
+                function canPlace(x, y) {
+                    var k = cellKey(x, y);
+                    return (cellCount[k] || 0) < 2;
+                }
+                function markPlace(x, y) {
+                    var k = cellKey(x, y);
+                    cellCount[k] = (cellCount[k] || 0) + 1;
+                }
+
+                var result = [];
+                var posIdx = 0;
+
+                function getNextPos() {
+                    while (posIdx < valid.length) {
+                        var p = valid[posIdx++];
+                        if (canPlace(p[0], p[1])) {
+                            markPlace(p[0], p[1]);
+                            return p;
+                        }
+                    }
+                    // Wrap around if needed (shouldn't happen with 600+ positions)
+                    posIdx = 0;
+                    return valid[posIdx++];
+                }
+
+                var isExtreme = (diff === 3);
+                var baseSpeed = MOVE_SPEED; // player base speed reference
+
+                // Type 0 (Demons): 5-15 hp, 50-75% speed, less aggressive
+                for (var i = 0; i < nDemons; i++) {
+                    var p = getNextPos();
+                    var hp = 5 + Math.floor(Math.random() * 11);
+                    var spdPct = 0.50 + Math.random() * 0.25;
+                    if (isExtreme) spdPct = 1.10 + Math.random() * 0.40;
+                    result.push(makeEnemy(p[0] + 0.5, p[1] + 0.5, hp, baseSpeed * spdPct, 0));
+                }
+                // Type 1 (Imps): 15-25 hp, 75-110% speed, fastest
+                for (var i = 0; i < nImps; i++) {
+                    var p = getNextPos();
+                    var hp = 15 + Math.floor(Math.random() * 11);
+                    var spdPct = 0.75 + Math.random() * 0.35;
+                    if (isExtreme) spdPct = 1.10 + Math.random() * 0.40;
+                    result.push(makeEnemy(p[0] + 0.5, p[1] + 0.5, hp, baseSpeed * spdPct, 1));
+                }
+                // Type 2 (Bosses): 30-50 hp, <50% speed, aggressive
+                for (var i = 0; i < nBosses; i++) {
+                    var p = getNextPos();
+                    var hp = 30 + Math.floor(Math.random() * 21);
+                    var spdPct = 0.20 + Math.random() * 0.30;
+                    if (isExtreme) spdPct = 1.10 + Math.random() * 0.40;
+                    result.push(makeEnemy(p[0] + 0.5, p[1] + 0.5, hp, baseSpeed * spdPct, 2));
+                }
+
+                return result;
+            }
+
+            var enemies = initEnemies();
+            var totalEnemies = enemies.length;
+            var totalByType = [0, 0, 0];
+            function countEnemyTypes() {
+                totalByType = [0, 0, 0];
+                for (var i = 0; i < enemies.length; i++) totalByType[enemies[i].type]++;
+            }
+            countEnemyTypes();
+
+            // --- CANVAS SETUP ---
+            var canvas = document.getElementById("gameCanvas");
+            var ctx = canvas.getContext("2d");
+            canvas.width = SCREEN_W;
+            canvas.height = SCREEN_H;
+
+            var minimapCanvas = document.getElementById("minimap");
+            var mctx = minimapCanvas.getContext("2d");
+
+            // --- GAME STATE ---
+            var gameStarted = false;
+            var gameover = false;
+            var gameWon = false;
+            var gamePaused = false;
+            var showMinimap = false;
+            var lastTime = 0;
+            var dt = 0;
+
+            // --- SETTINGS DEFAULTS ---
+            var DEFAULT_MOVE_SPEED = 0.075;
+            var DEFAULT_MOUSE_SENS = 0.005;
+            var DEFAULT_FOV_DEG = 60;
+            var sensMultiplier = 1.0;
+
+            // --- INPUT ---
+            var keys = {};
+            var mouseMovX = 0;
+
+            document.addEventListener("keydown", function(e) {
+                keys[e.code] = true;
+                if (e.code === "Escape" && gameStarted && !gameover && !gameWon) {
+                    e.preventDefault();
+                    if (gamePaused) {
+                        resumeGame();
+                    } else {
+                        pauseGame();
+                    }
+                    return;
+                }
+                if (gamePaused) return;
+                if (e.code === "KeyM" && gameStarted && !gameover && !gameWon) {
+                showMinimap = !showMinimap;
+                document.getElementById("minimap").style.display = showMinimap ? "block" : "none";
+                }
+                // Gear switching: 1=gun, 2=knife, 3=shield
+                if (gameStarted && !gameover && !gameWon) {
+                if (e.code === "Digit1") { player.gear = GEAR_GUN; updateGearHUD(); }
+                if (e.code === "Digit2") { player.gear = GEAR_KNIFE; updateGearHUD(); }
+                if (e.code === "Digit3") { player.gear = GEAR_SHIELD; updateGearHUD(); }
+                }
+            });
+            document.addEventListener("keyup", function(e) {
+                keys[e.code] = false;
+            });
+            document.addEventListener("mousemove", function(e) {
+                if (document.pointerLockElement === canvas) {
+                mouseMovX += e.movementX;
+                }
+            });
+            canvas.addEventListener("mousedown", function(e) {
+                if (e.button === 0 && gameStarted && !gameover && !gameWon && !gamePaused) {
+                playerShoot();
+                }
+            });
+
+            // --- START GAME ---
+            document.getElementById("startBtn").addEventListener("click", function() {
+                startGame();
+            });
+            document.getElementById("startScreen").addEventListener("click", function(e) {
+                if (e.target.id !== "startBtn") return;
+            });
+
+            document.getElementById("overlay").addEventListener("click", function() {
+                if (gameWon) return; // Win screen is permanent
+                restartGame();
+            });
+
+            // Difficulty slider on start screen
+            var diffSliderEl = document.getElementById("diffSlider");
+            diffSliderEl.addEventListener("input", function() {
+                currentDifficulty = parseInt(this.value);
+                document.getElementById("diffLabel").textContent = DIFF_NAMES[currentDifficulty];
+                document.getElementById("diffLabel").style.color = DIFF_COLORS[currentDifficulty];
+                document.getElementById("diffDesc").textContent = DIFF_DESCS[currentDifficulty];
+            });
+
+            function startGame() {
+                // Regenerate enemies for chosen difficulty
+                enemies = initEnemies();
+                totalEnemies = enemies.length;
+                countEnemyTypes();
+                player.killsByType = [0, 0, 0];
+
+                document.getElementById("startScreen").style.display = "none";
+                document.getElementById("hud").style.display = "flex";
+                document.getElementById("crosshair").style.display = "block";
+                document.getElementById("versionLabel").style.display = "block";
+                document.getElementById("versionLabel").textContent = GAME_VERSION;
+                document.getElementById("diffHudVal").textContent = DIFF_NAMES[currentDifficulty];
+                document.getElementById("diffHudVal").style.color = DIFF_COLORS[currentDifficulty];
+                updateKillsHUD();
+                gameStarted = true;
+                canvas.requestPointerLock();
+            }
+
+            function updateKillsHUD() {
+                document.getElementById("demonKills").textContent = player.killsByType[0];
+                document.getElementById("demonTotal").textContent = totalByType[0];
+                document.getElementById("impKills").textContent = player.killsByType[1];
+                document.getElementById("impTotal").textContent = totalByType[1];
+                document.getElementById("bossKills").textContent = player.killsByType[2];
+                document.getElementById("bossTotal").textContent = totalByType[2];
+            }
+
+            function updateGearHUD() {
+                document.getElementById("gearVal").textContent = GEAR_NAMES[player.gear];
+            }
+
+            // --- PAUSE MENU ---
+            function pauseGame() {
+                gamePaused = true;
+                document.exitPointerLock();
+                document.getElementById("pauseMenu").style.display = "flex";
+            }
+
+            function resumeGame() {
+                gamePaused = false;
+                document.getElementById("pauseMenu").style.display = "none";
+                canvas.requestPointerLock();
+            }
+
+            document.getElementById("pauseMenu").addEventListener("click", function(e) {
+                if (e.target.tagName === "INPUT" || e.target.tagName === "BUTTON") return;
+                resumeGame();
+            });
+
+            // Resolution buttons
+            var resButtons = document.querySelectorAll("#pauseMenu .res-btn");
+            for (var ri = 0; ri < resButtons.length; ri++) {
+                resButtons[ri].addEventListener("click", function() {
+                    var parts = this.getAttribute("data-res").split("x");
+                    SCREEN_W = parseInt(parts[0]);
+                    SCREEN_H = parseInt(parts[1]);
+                    canvas.width = SCREEN_W;
+                    canvas.height = SCREEN_H;
+                    NUM_RAYS = SCREEN_W;
+                    for (var b = 0; b < resButtons.length; b++) resButtons[b].classList.remove("active");
+                    this.classList.add("active");
+                    resize();
+                });
+            }
+
+            // FOV slider
+            document.getElementById("fovSlider").addEventListener("input", function() {
+                var deg = parseInt(this.value);
+                FOV = deg * Math.PI / 180;
+                HALF_FOV = FOV / 2;
+                document.getElementById("fovVal").innerHTML = deg + "&deg;";
+            });
+
+            // Mouse sensitivity slider
+            document.getElementById("sensSlider").addEventListener("input", function() {
+                var pct = parseInt(this.value);
+                sensMultiplier = pct / 100;
+                MOUSE_SENS = DEFAULT_MOUSE_SENS * sensMultiplier;
+                document.getElementById("sensVal").textContent = pct + "%";
+            });
+
+            // Prevent pointer lock exit from unpausing
+            document.addEventListener("pointerlockchange", function() {
+                if (!document.pointerLockElement && gameStarted && !gameover && !gameWon && !gamePaused) {
+                    pauseGame();
+                }
+            });
+
+            function restartGame() {
+                player.x = 2.5;
+                player.y = 2.5;
+                player.angle = 0;
+                player.hp = DEV.maxHp;
+                player.kills = 0;
+                player.killsByType = [0, 0, 0];
+                player.shooting = 0;
+                player.gear = GEAR_GUN;
+                MOVE_SPEED = BASE_MOVE_SPEED;
+                gameover = false;
+                gameWon = false;
+                gamePaused = false;
+
+                enemies = initEnemies();
+                totalEnemies = enemies.length;
+                countEnemyTypes();
+
+                document.getElementById("pauseMenu").style.display = "none";
+                document.getElementById("overlay").style.display = "none";
+                document.getElementById("overlay").className = "";
+                document.getElementById("creditsWrap").style.display = "none";
+                document.getElementById("gearVal").textContent = "GUN";
+                updateKillsHUD();
+                canvas.requestPointerLock();
+            }
+
+            // --- AUDIO (Web Audio API - procedural) ---
+            var audioCtx = null;
+            function ensureAudio() {
+                if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+            }
+
+            function playSound(freq, duration, type, vol) {
+                try {
+                ensureAudio();
+                var osc = audioCtx.createOscillator();
+                var gain = audioCtx.createGain();
+                osc.type = type || "square";
+                osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(freq * 0.3, audioCtx.currentTime + duration);
+                gain.gain.setValueAtTime(vol || 0.15, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+                } catch(e) {}
+            }
+
+            function playShotSound() {
+                playSound(200, 0.15, "sawtooth", 0.2);
+                playSound(80, 0.2, "square", 0.15);
+            }
+
+            function playHitSound() {
+                playSound(400, 0.1, "square", 0.1);
+            }
+
+            function playHurtSound() {
+                playSound(100, 0.3, "sawtooth", 0.2);
+            }
+
+            function playDeathSound() {
+                playSound(300, 0.1, "square", 0.15);
+                setTimeout(function() { playSound(200, 0.1, "square", 0.12); }, 100);
+                setTimeout(function() { playSound(100, 0.3, "sawtooth", 0.1); }, 200);
+            }
+
+            // --- COLLISION ---
+            function isWall(x, y) {
+                var mx = Math.floor(x);
+                var my = Math.floor(y);
+                if (mx < 0 || mx >= MAP_W || my < 0 || my >= MAP_H) return true;
+                return MAP[my][mx] > 0;
+            }
+
+            function canMoveTo(x, y) {
+                var r = PLAYER_RADIUS;
+                return !isWall(x - r, y - r) && !isWall(x + r, y - r) &&
+                    !isWall(x - r, y + r) && !isWall(x + r, y + r);
+            }
+
+            // --- LINE OF SIGHT ---
+            function hasLineOfSight(x1, y1, x2, y2) {
+                var dx = x2 - x1;
+                var dy = y2 - y1;
+                var dist = Math.sqrt(dx * dx + dy * dy);
+                var steps = Math.ceil(dist * 10);
+                for (var i = 0; i <= steps; i++) {
+                var t = i / steps;
+                var cx = x1 + dx * t;
+                var cy = y1 + dy * t;
+                if (isWall(cx, cy)) return false;
+                }
+                return true;
+            }
+
+            // --- SHOOTING ---
+            function applyKnockback(enemy) {
+                var dx = enemy.x - player.x;
+                var dy = enemy.y - player.y;
+                var dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist > 0) {
+                    var kbX = enemy.x + (dx / dist) * 0.25;
+                    var kbY = enemy.y + (dy / dist) * 0.25;
+                    if (!isWall(kbX, enemy.y)) enemy.x = kbX;
+                    if (!isWall(enemy.x, kbY)) enemy.y = kbY;
+                }
+            }
+
+            function showCredits() {
+                var wrap = document.getElementById("creditsWrap");
+                var scroll = document.getElementById("creditsScroll");
+                scroll.innerHTML = "";
+                for (var i = 0; i < CREDITS.length; i++) {
+                    var div = document.createElement("div");
+                    div.className = "credit-line" + (CREDITS[i].heading ? " heading" : "");
+                    div.textContent = CREDITS[i].text || "\u00A0";
+                    scroll.appendChild(div);
+                }
+                wrap.style.display = "block";
+            }
+
+            function onEnemyKilled(killedEnemy) {
+                killedEnemy.alive = false;
+                killedEnemy.deathTimer = 30;
+                player.kills++;
+                player.killsByType[killedEnemy.type]++;
+                playDeathSound();
+
+                // HP reward per kill
+                player.hp = Math.min(DEV.maxHp, player.hp + DEV.killHpReward);
+
+                updateKillsHUD();
+
+                if (player.kills >= totalEnemies) {
+                    gameWon = true;
+                    document.getElementById("overlay").style.display = "flex";
+                    document.getElementById("overlay").className = "win-overlay";
+                    document.getElementById("overlayTitle").textContent = "YOU WIN!";
+                    document.getElementById("overlayTitle").style.color = "#0f0";
+                    showCredits();
+                    document.exitPointerLock();
+                }
+            }
+
+            function playerShoot() {
+                if (player.shooting > 0) return;
+                if (player.gear === GEAR_SHIELD) return; // Can't attack with shield
+                player.shooting = 8;
+                playShotSound();
+
+                var isKnife = player.gear === GEAR_KNIFE;
+                // Knife: melee range only (2 units), wide hitbox like enemies
+                // Gun: long range, narrow hitbox (halved)
+                var maxRange = isKnife ? 2 : 999;
+
+                // Find closest enemy in crosshair
+                var bestDist = maxRange;
+                var bestEnemy = null;
+
+                for (var i = 0; i < enemies.length; i++) {
+                    var e = enemies[i];
+                    if (!e.alive) continue;
+
+                    var dx = e.x - player.x;
+                    var dy = e.y - player.y;
+                    var dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist > maxRange) continue;
+
+                    var angle = Math.atan2(dy, dx) - player.angle;
+                    while (angle > Math.PI) angle -= Math.PI * 2;
+                    while (angle < -Math.PI) angle += Math.PI * 2;
+
+                    // Hitbox: knife uses wide hitbox like enemies, gun uses halved hitbox
+                    var hitWidth;
+                    if (isKnife) {
+                        hitWidth = Math.min(0.6, 1.6 / dist);
+                    } else {
+                        hitWidth = Math.min(0.15, 0.4 / dist);
+                    }
+
+                    if (Math.abs(angle) < hitWidth && dist < bestDist) {
+                        if (hasLineOfSight(player.x, player.y, e.x, e.y)) {
+                            bestDist = dist;
+                            bestEnemy = e;
+                        }
+                    }
+                }
+
+                if (bestEnemy) {
+                    var dmg = isKnife ? DEV.knifeDamage : DEV.gunDamage;
+                    bestEnemy.hp -= dmg;
+                    bestEnemy.hitTimer = 10;
+                    playHitSound();
+                    applyKnockback(bestEnemy);
+
+                    if (bestEnemy.hp <= 0) { onEnemyKilled(bestEnemy); }
+                }
+            }
+
+            // --- UPDATE ---
+            function update(dt60) {
+                if (!gameStarted || gameover || gameWon || gamePaused) return;
+
+                // Mouse look
+                player.angle += mouseMovX * MOUSE_SENS;
+                mouseMovX = 0;
+
+                // Keyboard rotation
+                if (keys["ArrowLeft"]) player.angle -= ROT_SPEED * dt60;
+                if (keys["ArrowRight"]) player.angle += ROT_SPEED * dt60;
+
+                // Movement
+                var moveX = 0;
+                var moveY = 0;
+                var moving = false;
+
+                var curSpeed = MOVE_SPEED;
+                if (player.gear === GEAR_SHIELD) curSpeed = MOVE_SPEED * 0.9;
+
+                if (keys["KeyW"] || keys["ArrowUp"]) {
+                    moveX += Math.cos(player.angle) * curSpeed;
+                    moveY += Math.sin(player.angle) * curSpeed;
+                    moving = true;
+                }
+                if (keys["KeyS"] || keys["ArrowDown"]) {
+                    moveX -= Math.cos(player.angle) * curSpeed;
+                    moveY -= Math.sin(player.angle) * curSpeed;
+                    moving = true;
+                }
+                if (keys["KeyA"]) {
+                    moveX += Math.cos(player.angle - Math.PI / 2) * curSpeed;
+                    moveY += Math.sin(player.angle - Math.PI / 2) * curSpeed;
+                    moving = true;
+                }
+                if (keys["KeyD"]) {
+                    moveX += Math.cos(player.angle + Math.PI / 2) * curSpeed;
+                    moveY += Math.sin(player.angle + Math.PI / 2) * curSpeed;
+                    moving = true;
+                }
+
+                // Apply movement with wall sliding
+                moveX *= dt60;
+                moveY *= dt60;
+
+                if (canMoveTo(player.x + moveX, player.y)) player.x += moveX;
+                if (canMoveTo(player.x, player.y + moveY)) player.y += moveY;
+
+                // Gun bob
+                if (moving) {
+                    player.gunBob += 0.12 * dt60 * player.bobDir;
+                    if (player.gunBob > 1) player.bobDir = -1;
+                    if (player.gunBob < -1) player.bobDir = 1;
+                } else {
+                    player.gunBob *= 0.9;
+                }
+
+                // Shooting timer
+                if (player.shooting > 0) player.shooting -= dt60;
+
+                // Enemy AI
+                for (var i = 0; i < enemies.length; i++) {
+                    var e = enemies[i];
+
+                    if (!e.alive) {
+                        if (e.deathTimer > 0) e.deathTimer -= dt60;
+                        continue;
+                    }
+
+                    if (e.hitTimer > 0) e.hitTimer -= dt60;
+                    if (e.attackCooldown > 0) e.attackCooldown -= dt60;
+
+                    var dx = player.x - e.x;
+                    var dy = player.y - e.y;
+                    var dist = Math.sqrt(dx * dx + dy * dy);
+
+                    // Check if enemy can see player (line of sight only)
+                    var canSee = hasLineOfSight(e.x, e.y, player.x, player.y);
+                    if (canSee) e.seen = true;
+
+                    if (e.seen && dist > 0.6) {
+                        // Move toward player
+                        var nx = dx / dist;
+                        var ny = dy / dist;
+                        var spd = e.speed * DEV.enemySpeedMult * dt60;
+
+                        // Add some randomness to movement
+                        nx += (Math.random() - 0.5) * 0.3;
+                        ny += (Math.random() - 0.5) * 0.3;
+
+                        var newX = e.x + nx * spd;
+                        var newY = e.y + ny * spd;
+
+                        // Collision with walls
+                        if (!isWall(newX, e.y)) e.x = newX;
+                        if (!isWall(e.x, newY)) e.y = newY;
+
+                        // Collision with other enemies
+                        for (var j = 0; j < enemies.length; j++) {
+                            if (i === j || !enemies[j].alive) continue;
+                            var edx = e.x - enemies[j].x;
+                            var edy = e.y - enemies[j].y;
+                            var eDist = Math.sqrt(edx * edx + edy * edy);
+                            if (eDist < 0.5 && eDist > 0) {
+                                e.x += (edx / eDist) * 0.01;
+                                e.y += (edy / eDist) * 0.01;
+                            }
+                        }
+                    }
+
+                    // Attack player
+                    if (dist < 1.0 && e.attackCooldown <= 0 && canSee) {
+                        var damage;
+                        if (currentDifficulty === 3) {
+                            damage = 25 + Math.floor(Math.random() * 51);
+                        } else {
+                            damage = e.type === 2 ? 12 : (e.type === 1 ? 8 : 5);
+                            damage += Math.floor(Math.random() * 5);
+                        }
+                        damage = Math.round(damage * DEV.enemyDmgMult);
+                        // Shield absorbs damage
+                        if (player.gear === GEAR_SHIELD) {
+                            damage = Math.max(1, Math.floor(damage * (1 - DEV.shieldReduction)));
+                        }
+                        if (DEV.godMode) damage = 0;
+                        player.hp -= damage;
+                        e.attackCooldown = 40 + Math.random() * 20;
+                        playHurtSound();
+
+                        // Damage flash
+                        var flash = document.getElementById("dmgFlash");
+                        flash.style.opacity = "0.6";
+                        setTimeout(function() { flash.style.opacity = "0"; }, 150);
+
+                        if (player.hp <= 0) {
+                        player.hp = 0;
+                        gameover = true;
+                        document.getElementById("overlay").style.display = "flex";
+                        document.getElementById("overlay").className = "dead-overlay";
+                        document.getElementById("overlayTitle").textContent = "YOU DIED";
+                        document.getElementById("overlayTitle").style.color = "#f00";
+                        document.exitPointerLock();
+                        }
+                    }
+                }
+
+                // Update HUD
+                document.getElementById("hpVal").textContent = Math.max(0, player.hp);
+                var hpColor = player.hp > 60 ? "#0f0" : (player.hp > 30 ? "#ff0" : "#f00");
+                document.querySelector("#hudHp .hud-value").style.color = hpColor;
+            }
+
+            // --- RAYCASTING RENDER ---
+            function render() {
+                ctx.fillStyle = "#000";
+                ctx.fillRect(0, 0, SCREEN_W, SCREEN_H);
+
+                // Ceiling
+                var ceilGrad = ctx.createLinearGradient(0, 0, 0, SCREEN_H / 2);
+                ceilGrad.addColorStop(0, "#111");
+                ceilGrad.addColorStop(1, "#333");
+                ctx.fillStyle = ceilGrad;
+                ctx.fillRect(0, 0, SCREEN_W, SCREEN_H / 2);
+
+                // Floor
+                var floorGrad = ctx.createLinearGradient(0, SCREEN_H / 2, 0, SCREEN_H);
+                floorGrad.addColorStop(0, "#222");
+                floorGrad.addColorStop(1, "#444");
+                ctx.fillStyle = floorGrad;
+                ctx.fillRect(0, SCREEN_H / 2, SCREEN_W, SCREEN_H / 2);
+
+                // Raycasting
+                var zBuffer = new Float64Array(NUM_RAYS);
+
+                for (var i = 0; i < NUM_RAYS; i++) {
+                var rayAngle = player.angle - HALF_FOV + (i / NUM_RAYS) * FOV;
+                var sin = Math.sin(rayAngle);
+                var cos = Math.cos(rayAngle);
+
+                // DDA algorithm
+                var mapX = Math.floor(player.x);
+                var mapY = Math.floor(player.y);
+
+                var deltaDistX = Math.abs(1 / cos);
+                var deltaDistY = Math.abs(1 / sin);
+
+                var stepX, stepY, sideDistX, sideDistY;
+
+                if (cos < 0) {
+                    stepX = -1;
+                    sideDistX = (player.x - mapX) * deltaDistX;
+                } else {
+                    stepX = 1;
+                    sideDistX = (mapX + 1 - player.x) * deltaDistX;
+                }
+                if (sin < 0) {
+                    stepY = -1;
+                    sideDistY = (player.y - mapY) * deltaDistY;
+                } else {
+                    stepY = 1;
+                    sideDistY = (mapY + 1 - player.y) * deltaDistY;
+                }
+
+                var hit = 0;
+                var side = 0;
+                var wallType = 1;
+
+                while (hit === 0) {
+                    if (sideDistX < sideDistY) {
+                        sideDistX += deltaDistX;
+                        mapX += stepX;
+                        side = 0;
+                    } else {
+                        sideDistY += deltaDistY;
+                        mapY += stepY;
+                        side = 1;
+                    }
+                    if (mapX < 0 || mapX >= MAP_W || mapY < 0 || mapY >= MAP_H) { hit = 1; break; }
+                    if (MAP[mapY][mapX] > 0) {
+                    hit = 1;
+                    wallType = MAP[mapY][mapX];
+                    }
+                }
+
+                var perpDist;
+                if (side === 0) {
+                    perpDist = (mapX - player.x + (1 - stepX) / 2) / cos;
+                } else {
+                    perpDist = (mapY - player.y + (1 - stepY) / 2) / sin;
+                }
+
+                // Fix fisheye
+                var correctedDist = perpDist * Math.cos(rayAngle - player.angle);
+                zBuffer[i] = correctedDist;
+
+                if (correctedDist <= 0) correctedDist = 0.01;
+
+                var lineHeight = SCREEN_H / correctedDist;
+                var drawStart = (SCREEN_H - lineHeight) / 2;
+
+                // Wall texture: use hit position for stripe effect
+                var wallX;
+                if (side === 0) {
+                    wallX = player.y + perpDist * sin;
+                } else {
+                    wallX = player.x + perpDist * cos;
+                }
+                wallX -= Math.floor(wallX);
+
+                // Color with shading
+                var colors = WALL_COLORS[wallType] || [150, 150, 150];
+                var shade = Math.max(0.1, 1 - correctedDist / 14);
+                if (side === 1) shade *= 0.7;
+
+                // Stripe texture effect
+                var texShade = 1;
+                var wx16 = Math.floor(wallX * 16);
+                if (wx16 === 0 || wx16 === 15) texShade = 0.7;
+                if (wx16 === 7 || wx16 === 8) texShade = 0.85;
+
+                var r = Math.floor(colors[0] * shade * texShade);
+                var g = Math.floor(colors[1] * shade * texShade);
+                var b = Math.floor(colors[2] * shade * texShade);
+
+                ctx.fillStyle = "rgb(" + r + "," + g + "," + b + ")";
+                ctx.fillRect(i, drawStart, 1, lineHeight);
+
+                // Wall edge darkening
+                if (wallX < 0.02 || wallX > 0.98) {
+                    ctx.fillStyle = "rgba(0,0,0,0.3)";
+                    ctx.fillRect(i, drawStart, 1, lineHeight);
+                }
+                }
+
+                // --- RENDER SPRITES (enemies) ---
+                var spriteList = [];
+                for (var i = 0; i < enemies.length; i++) {
+                var e = enemies[i];
+                if (!e.alive && e.deathTimer <= 0) continue;
+                var dx = e.x - player.x;
+                var dy = e.y - player.y;
+                spriteList.push({
+                    idx: i,
+                    dist: dx * dx + dy * dy,
+                    dx: dx,
+                    dy: dy
+                });
+                }
+                spriteList.sort(function(a, b) { return b.dist - a.dist; });
+
+                for (var si = 0; si < spriteList.length; si++) {
+                var sp = spriteList[si];
+                var e = enemies[sp.idx];
+                var dist = Math.sqrt(sp.dist);
+
+                var spriteAngle = Math.atan2(sp.dy, sp.dx) - player.angle;
+                while (spriteAngle > Math.PI) spriteAngle -= Math.PI * 2;
+                while (spriteAngle < -Math.PI) spriteAngle += Math.PI * 2;
+
+                if (Math.abs(spriteAngle) > HALF_FOV + 0.3) continue;
+
+                var screenX = SCREEN_W / 2 + (spriteAngle / HALF_FOV) * (SCREEN_W / 2);
+                var spriteHeight = Math.min(SCREEN_H * 1.5, SCREEN_H / dist);
+                var spriteWidth = spriteHeight * 0.6;
+
+                if (e.type === 2) {
+                    spriteHeight *= 1.4;
+                    spriteWidth *= 1.3;
+                }
+
+                var spriteTop = (SCREEN_H - spriteHeight) / 2;
+                var spriteLeft = screenX - spriteWidth / 2;
+
+                // Calculate perpendicular distance for zbuffer comparison
+                var perpSpriteDist = dist * Math.cos(spriteAngle);
+
+                // Brightness
+                var bright = Math.max(0.15, 1 - dist / 14);
+
+                // Colors based on type
+                var bodyR, bodyG, bodyB, eyeColor;
+                if (e.type === 0) { // Demon - red
+                    bodyR = Math.floor(200 * bright);
+                    bodyG = Math.floor(50 * bright);
+                    bodyB = Math.floor(50 * bright);
+                    eyeColor = "rgb(255," + Math.floor(150 * bright) + ",0)";
+                } else if (e.type === 1) { // Imp - yellow/brown
+                    bodyR = Math.floor(180 * bright);
+                    bodyG = Math.floor(140 * bright);
+                    bodyB = Math.floor(40 * bright);
+                    eyeColor = "rgb(255," + Math.floor(200 * bright) + ",0)";
+                } else { // Boss - purple
+                    bodyR = Math.floor(140 * bright);
+                    bodyG = Math.floor(40 * bright);
+                    bodyB = Math.floor(180 * bright);
+                    eyeColor = "rgb(255," + Math.floor(50 * bright) + "," + Math.floor(50 * bright) + ")";
+                }
+
+                // Hit flash
+                if (e.hitTimer > 0) {
+                    bodyR = 255; bodyG = 255; bodyB = 255;
+                }
+
+                // Death - fallen
+                if (!e.alive) {
+                    var alpha = e.deathTimer / 30;
+                    ctx.globalAlpha = alpha;
+                    ctx.fillStyle = "rgb(" + Math.floor(100 * bright) + ",0,0)";
+                    ctx.fillRect(spriteLeft, spriteTop + spriteHeight * 0.7, spriteWidth, spriteHeight * 0.15);
+                    ctx.globalAlpha = 1;
+                    continue;
+                }
+
+                var bodyCol = "rgb(" + bodyR + "," + bodyG + "," + bodyB + ")";
+                var darkCol = "rgb(" + Math.floor(bodyR * 0.6) + "," + Math.floor(bodyG * 0.6) + "," + Math.floor(bodyB * 0.6) + ")";
+
+                // Draw sprite column by column (zbuffer check)
+                // Head
+                var headR = spriteWidth * 0.25;
+                var headCx = screenX;
+                var headCy = spriteTop + spriteHeight * 0.15;
+
+                // Only draw visible columns
+                for (var col = Math.floor(spriteLeft); col < Math.ceil(spriteLeft + spriteWidth); col++) {
+                    if (col < 0 || col >= SCREEN_W) continue;
+                    if (perpSpriteDist >= zBuffer[col]) continue;
+
+                    var relX = (col - spriteLeft) / spriteWidth; // 0 to 1
+
+                    // Head (circle approximation)
+                    var headLeft = 0.3, headRight = 0.7;
+                    if (relX > headLeft && relX < headRight) {
+                    var headRelX = (relX - headLeft) / (headRight - headLeft) - 0.5;
+                    var headH = Math.sqrt(Math.max(0, 0.25 - headRelX * headRelX)) * 2;
+                    var headTop = headCy - headR * headH;
+                    var headBot = headCy + headR * headH;
+                    ctx.fillStyle = bodyCol;
+                    ctx.fillRect(col, headTop, 1, headBot - headTop);
+
+                    // Eyes
+                    if (relX > 0.38 && relX < 0.46) {
+                        var eyeY = headCy - headR * 0.1;
+                        ctx.fillStyle = eyeColor;
+                        ctx.fillRect(col, eyeY, 1, Math.max(2, spriteWidth * 0.06));
+                    }
+                    if (relX > 0.54 && relX < 0.62) {
+                        var eyeY = headCy - headR * 0.1;
+                        ctx.fillStyle = eyeColor;
+                        ctx.fillRect(col, eyeY, 1, Math.max(2, spriteWidth * 0.06));
+                    }
+                    }
+
+                    // Horns for demons and boss
+                    if (e.type === 0 || e.type === 2) {
+                    if (relX > 0.2 && relX < 0.3) {
+                        var hornTop = spriteTop;
+                        var hornBot = spriteTop + spriteHeight * 0.1;
+                        ctx.fillStyle = darkCol;
+                        ctx.fillRect(col, hornTop, 1, hornBot - hornTop);
+                    }
+                    if (relX > 0.7 && relX < 0.8) {
+                        var hornTop = spriteTop;
+                        var hornBot = spriteTop + spriteHeight * 0.1;
+                        ctx.fillStyle = darkCol;
+                        ctx.fillRect(col, hornTop, 1, hornBot - hornTop);
+                    }
+                    }
+
+                    // Body
+                    var bodyLeft = 0.2, bodyRight = 0.8;
+                    if (relX > bodyLeft && relX < bodyRight) {
+                    var bodyTop = spriteTop + spriteHeight * 0.28;
+                    var bodyBot = spriteTop + spriteHeight * 0.72;
+                    ctx.fillStyle = bodyCol;
+                    ctx.fillRect(col, bodyTop, 1, bodyBot - bodyTop);
+
+                    // Belt/detail
+                    var beltY = spriteTop + spriteHeight * 0.5;
+                    ctx.fillStyle = darkCol;
+                    ctx.fillRect(col, beltY, 1, Math.max(1, spriteHeight * 0.03));
+                    }
+
+                    // Arms
+                    if ((relX > 0.05 && relX < 0.2) || (relX > 0.8 && relX < 0.95)) {
+                    var armTop = spriteTop + spriteHeight * 0.3;
+                    var armBot = spriteTop + spriteHeight * 0.58;
+                    ctx.fillStyle = darkCol;
+                    ctx.fillRect(col, armTop, 1, armBot - armTop);
+                    }
+
+                    // Legs
+                    if (relX > 0.25 && relX < 0.42) {
+                    var legTop = spriteTop + spriteHeight * 0.72;
+                    var legBot = spriteTop + spriteHeight * 0.95;
+                    ctx.fillStyle = darkCol;
+                    ctx.fillRect(col, legTop, 1, legBot - legTop);
+                    }
+                    if (relX > 0.58 && relX < 0.75) {
+                    var legTop = spriteTop + spriteHeight * 0.72;
+                    var legBot = spriteTop + spriteHeight * 0.95;
+                    ctx.fillStyle = darkCol;
+                    ctx.fillRect(col, legTop, 1, legBot - legTop);
+                    }
+                }
+
+                // Health bar for boss
+                if (e.type === 2 && dist < 10) {
+                    var barW = spriteWidth * 0.8;
+                    var barH = 4;
+                    var barX = screenX - barW / 2;
+                    var barY = spriteTop - 10;
+                    ctx.fillStyle = "#300";
+                    ctx.fillRect(barX, barY, barW, barH);
+                    ctx.fillStyle = "#f00";
+                    ctx.fillRect(barX, barY, barW * (e.hp / e.maxHp), barH);
+                }
+                }
+
+                // --- WEAPON ---
+                var gunOffY = player.gunBob * 5;
+                var gunKick = player.shooting > 0 ? Math.max(0, player.shooting) * 3 : 0;
+                var wpnX = SCREEN_W / 2 + 30;
+                var wpnY = SCREEN_H - 100 + gunOffY + gunKick;
+
+                if (player.gear === GEAR_GUN) {
+                // --- GUN ---
+                ctx.fillStyle = "rgba(0,0,0,0.4)";
+                ctx.fillRect(wpnX - 5, wpnY + 5, 25, 105);
+                ctx.fillStyle = "#555";
+                ctx.fillRect(wpnX, wpnY - 20, 18, 100);
+                ctx.fillStyle = "#777";
+                ctx.fillRect(wpnX + 2, wpnY - 20, 14, 80);
+                ctx.fillStyle = "#222";
+                ctx.beginPath();
+                ctx.arc(wpnX + 9, wpnY - 20, 5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = "#664422";
+                ctx.fillRect(wpnX - 8, wpnY + 50, 34, 55);
+                ctx.fillStyle = "#553311";
+                ctx.fillRect(wpnX - 5, wpnY + 55, 28, 45);
+                ctx.strokeStyle = "#444";
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(wpnX + 9, wpnY + 55, 8, 0, Math.PI);
+                ctx.stroke();
+
+                // Muzzle flash
+                if (player.shooting > 4) {
+                    var flashSize = 25 + Math.random() * 15;
+                    ctx.fillStyle = "rgba(255,200,50,0.9)";
+                    ctx.beginPath();
+                    ctx.arc(wpnX + 9, wpnY - 25, flashSize, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = "rgba(255,255,200,0.8)";
+                    ctx.beginPath();
+                    ctx.arc(wpnX + 9, wpnY - 25, flashSize * 0.5, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = "rgba(255,220,100,0.4)";
+                    ctx.lineWidth = 2;
+                    for (var r = 0; r < 6; r++) {
+                    var rAngle = r * Math.PI / 3 + Math.random() * 0.3;
+                    ctx.beginPath();
+                    ctx.moveTo(wpnX + 9, wpnY - 25);
+                    ctx.lineTo(wpnX + 9 + Math.cos(rAngle) * flashSize * 1.5, wpnY - 25 + Math.sin(rAngle) * flashSize * 1.5);
+                    ctx.stroke();
+                    }
+                }
+
+                } else if (player.gear === GEAR_KNIFE) {
+                // --- KNIFE ---
+                var kx = wpnX + 5;
+                var ky = wpnY - 10;
+                var kSwing = player.shooting > 0 ? Math.max(0, player.shooting) * 4 : 0;
+                ctx.save();
+                ctx.translate(kx + 5, ky + 60);
+                ctx.rotate(-0.3 - kSwing * 0.05);
+                // Blade
+                ctx.fillStyle = "#ccc";
+                ctx.beginPath();
+                ctx.moveTo(-3, 0);
+                ctx.lineTo(0, -70);
+                ctx.lineTo(3, 0);
+                ctx.fill();
+                // Edge highlight
+                ctx.fillStyle = "#fff";
+                ctx.beginPath();
+                ctx.moveTo(-1, -5);
+                ctx.lineTo(0, -65);
+                ctx.lineTo(1, -5);
+                ctx.fill();
+                // Guard
+                ctx.fillStyle = "#888";
+                ctx.fillRect(-10, -2, 20, 5);
+                // Handle
+                ctx.fillStyle = "#553311";
+                ctx.fillRect(-4, 3, 8, 40);
+                ctx.fillStyle = "#664422";
+                ctx.fillRect(-3, 5, 6, 35);
+                // Pommel
+                ctx.fillStyle = "#444";
+                ctx.beginPath();
+                ctx.arc(0, 45, 5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+
+                // Slash flash
+                if (player.shooting > 5) {
+                    ctx.strokeStyle = "rgba(255,255,255,0.6)";
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.arc(kx, ky - 10, 40, -0.8, 0.4);
+                    ctx.stroke();
+                }
+
+                } else if (player.gear === GEAR_SHIELD) {
+                // --- SHIELD ---
+                var sx = SCREEN_W / 2;
+                var sy = SCREEN_H - 80 + gunOffY;
+                // Shield body (curved shape)
+                ctx.fillStyle = "#336";
+                ctx.beginPath();
+                ctx.ellipse(sx, sy, 50, 65, 0, 0, Math.PI * 2);
+                ctx.fill();
+                // Border
+                ctx.strokeStyle = "#88a";
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                ctx.ellipse(sx, sy, 50, 65, 0, 0, Math.PI * 2);
+                ctx.stroke();
+                // Cross emblem
+                ctx.fillStyle = "#aac";
+                ctx.fillRect(sx - 4, sy - 30, 8, 60);
+                ctx.fillRect(sx - 25, sy - 4, 50, 8);
+                // Shine
+                ctx.fillStyle = "rgba(255,255,255,0.15)";
+                ctx.beginPath();
+                ctx.ellipse(sx - 15, sy - 20, 15, 25, -0.3, 0, Math.PI * 2);
+                ctx.fill();
+                }
+
+                // Minimap
+                if (showMinimap) renderMinimap();
+            }
+
+            // --- MINIMAP ---
+            function renderMinimap() {
+                var scale = 160 / Math.max(MAP_W, MAP_H);
+                mctx.fillStyle = "rgba(0,0,0,0.8)";
+                mctx.fillRect(0, 0, 160, 160);
+
+                for (var y = 0; y < MAP_H; y++) {
+                for (var x = 0; x < MAP_W; x++) {
+                    if (MAP[y][x] > 0) {
+                    var colors = WALL_COLORS[MAP[y][x]] || [150, 150, 150];
+                    mctx.fillStyle = "rgb(" + colors[0] + "," + colors[1] + "," + colors[2] + ")";
+                    mctx.fillRect(x * scale, y * scale, scale, scale);
+                    }
+                }
+                }
+
+                // Enemies
+                for (var i = 0; i < enemies.length; i++) {
+                var e = enemies[i];
+                if (!e.alive) continue;
+                mctx.fillStyle = e.type === 0 ? "#f00" : (e.type === 1 ? "#ff0" : "#f0f");
+                mctx.fillRect(e.x * scale - 2, e.y * scale - 2, 4, 4);
+                }
+
+                // Player
+                mctx.fillStyle = "#0f0";
+                mctx.fillRect(player.x * scale - 2, player.y * scale - 2, 4, 4);
+
+                // Direction
+                mctx.strokeStyle = "#0f0";
+                mctx.lineWidth = 1;
+                mctx.beginPath();
+                mctx.moveTo(player.x * scale, player.y * scale);
+                mctx.lineTo(
+                player.x * scale + Math.cos(player.angle) * 10,
+                player.y * scale + Math.sin(player.angle) * 10
+                );
+                mctx.stroke();
+            }
+
+            // --- MAIN LOOP ---
+            function gameLoop(timestamp) {
+                if (lastTime === 0) lastTime = timestamp;
+                dt = (timestamp - lastTime) / 16.67; // normalize to ~60fps
+                if (dt > 3) dt = 3; // cap delta
+                lastTime = timestamp;
+
+                update(dt);
+                render();
+                requestAnimationFrame(gameLoop);
+            }
+
+            // --- RESIZE ---
+            function resize() {
+                var maxW = window.innerWidth;
+                var maxH = window.innerHeight - 60; // account for HUD
+                var scale = Math.min(maxW / SCREEN_W, maxH / SCREEN_H);
+
+                canvas.style.width = Math.floor(SCREEN_W * scale) + "px";
+                canvas.style.height = Math.floor(SCREEN_H * scale) + "px";
+                canvas.style.marginLeft = Math.floor((maxW - SCREEN_W * scale) / 2) + "px";
+                canvas.style.marginTop = Math.floor((maxH - SCREEN_H * scale) / 2) + "px";
+            }
+
+            window.addEventListener("resize", resize);
+            resize();
+
+            // --- DEV MODE PANEL ---
+            function initDevMode() {
+                if (!DEV_MODE) return;
+                document.getElementById("devModeLabel").style.display = "block";
+                document.getElementById("devPanel").style.display = "block";
+
+                // Helper: link a slider + number input to a DEV property
+                function linkDev(sliderId, inputId, devKey, fromUI, toUI) {
+                    var slider = document.getElementById(sliderId);
+                    var input = document.getElementById(inputId);
+                    slider.addEventListener("input", function() {
+                        var v = parseFloat(this.value);
+                        DEV[devKey] = fromUI ? fromUI(v) : v;
+                        input.value = this.value;
+                    });
+                    input.addEventListener("input", function() {
+                        var v = parseFloat(this.value);
+                        if (isNaN(v)) return;
+                        DEV[devKey] = fromUI ? fromUI(v) : v;
+                        slider.value = this.value;
+                    });
+                }
+
+                // Player HP: slider/input value IS the maxHp; also set current hp
+                linkDev("devHp", "devHpVal", "maxHp", function(v) {
+                    player.hp = Math.min(player.hp, v);
+                    return v;
+                });
+                // Move speed: UI value is thousandths (75 = 0.075)
+                linkDev("devSpeed", "devSpeedVal", null, function(v) {
+                    MOVE_SPEED = v / 1000;
+                    BASE_MOVE_SPEED = MOVE_SPEED;
+                    return v;
+                });
+                linkDev("devGunDmg", "devGunDmgVal", "gunDamage");
+                linkDev("devKnifeDmg", "devKnifeDmgVal", "knifeDamage");
+                linkDev("devKillHp", "devKillHpVal", "killHpReward");
+                linkDev("devShieldPct", "devShieldPctVal", "shieldReduction", function(v) { return v / 100; });
+                linkDev("devEnemySpd", "devEnemySpdVal", "enemySpeedMult", function(v) { return v / 100; });
+                linkDev("devEnemyDmg", "devEnemyDmgVal", "enemyDmgMult", function(v) { return v / 100; });
+
+                // God mode toggle
+                document.getElementById("devGodMode").addEventListener("click", function() {
+                    DEV.godMode = !DEV.godMode;
+                    this.textContent = DEV.godMode ? "ON" : "OFF";
+                    this.style.color = DEV.godMode ? "#0f0" : "#f88";
+                });
+
+                // Kill all enemies
+                document.getElementById("devKillAll").addEventListener("click", function() {
+                    for (var i = 0; i < enemies.length; i++) {
+                        if (enemies[i].alive) onEnemyKilled(enemies[i]);
+                    }
+                });
+
+                // Teleport to spawn
+                document.getElementById("devTeleportSpawn").addEventListener("click", function() {
+                    player.x = 2.5; player.y = 2.5;
+                });
+
+                // Refill HP
+                document.getElementById("devRefillHp").addEventListener("click", function() {
+                    player.hp = DEV.maxHp;
+                });
+
+                // Close button
+                document.getElementById("devPanelClose").addEventListener("click", function() {
+                    document.getElementById("devPanel").style.display = "none";
+                });
+
+                // Toggle with backtick key
+                document.addEventListener("keydown", function(e) {
+                    if (e.code === "Backquote" && DEV_MODE) {
+                        var panel = document.getElementById("devPanel");
+                        panel.style.display = panel.style.display === "none" ? "block" : "none";
+                    }
+                });
+            }
+            initDevMode();
+
+            requestAnimationFrame(gameLoop);
+            })();
+        </script>
+    </body>
 </html>
