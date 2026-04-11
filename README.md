@@ -3,7 +3,7 @@
 **Zero files. Zero hosting. Just pure DOOM - into the URL.**
 > **Website: [https://kmads.dev/doom](https://kmads.dev/doom)**
 
-An offline web application that packs the original **DOOM** (1993) + an self-made additional handcrafted **MicroDOOM** (compact version / remake) into single HTML file. <br>
+An offline web application that packs the original **DOOM** (1993) + an self-made additional handcrafted **MicroDOOM** (compact version / remake) into a single HTML file. <br>
 Then encodes them as **base64 data URIs** that you can paste into any browser and play - fully plug-and-play offline games, no backend or files required.
 
 There are two modes for each game:
@@ -21,8 +21,8 @@ This project explores how far you can push browser encoding and compression by c
 | Game               | Raw HTML  | Rendered Size  | Description |
 |--------------------|-----------|----------------|-------------|
 | **DOOM**           | ~7 MB     | ~4.4 MB (gzip) | id Software's 1993 classic compiled to WebAssembly, bundled with `doom1.wad` (shareware) and a JS runtime shim - all inline |
-| **MicroDOOM v1.0** | ~44 KB    | ~44 KB | A DOOM-like raycasting FPS written from scratch in vanilla JS. Enemies, weapons, HUD - smaller than a favicon |
-| **MicroDOOM v1.1** | ~50-60 KB | ~50-60 KB | Improved version with additional features (WIP) |
+| **MicroDOOM v1.0** | ~33 KB    | ~44 KB         | A DOOM-like raycasting FPS written from scratch in vanilla JS. Enemies, weapons, HUD - smaller than a favicon |
+| **MicroDOOM v1.1** | ~82 KB    | ~100-110 KB    | Improved version with additional features (WIP) |
 
 
 <br>
@@ -191,8 +191,7 @@ python encode microdoom_v1.1
 <br><br>
 
 
-<hr><br>
-<div style="display: flex; justify-content: center; align-items: center; text-align: center; text-justify: center;">
-    <sub>&copy; 2026 kmadsdev &middot; Handcrafted by a human</sub>
-</div>
-<br><hr>
+<hr>
+
+<sub>&copy; 2026 kmadsdev &middot; Handcrafted by a human</sub>
+<hr>
