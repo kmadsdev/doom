@@ -14,7 +14,10 @@
             document.getElementById('badge-doom').textContent = DOOM_FILESIZE;
             document.getElementById('doom-size-stat').textContent = DOOM_FILESIZE;
             document.getElementById('badge-microdoom').textContent = MICRODOOM_FILESIZE;
-            document.getElementById('microdoom-size-stat-v1.0').textContent = MICRODOOM_FILESIZE;
+            document.getElementById('microdoom-size-stat').textContent = MICRODOOM_FILESIZE;
+
+            // Store fetched URIs in memory instead of the DOM (large values may crash the browser)
+            var uriCache = {};
 
             // Offline buttons — fetch data URI and reveal copy panel
             document.querySelectorAll('.play-btn--offline').forEach(function (btn) {
@@ -26,15 +29,20 @@
                     var input = document.getElementById(inputId);
 
                     if (!panel.hidden) { panel.hidden = true; return; }
-                    if (input.value) { panel.hidden = false; return; }
+                    if (uriCache[src]) { panel.hidden = false; return; }
 
+                    var originalLabel = btn.querySelector('span').innerHTML;
                     btn.querySelector('span').textContent = 'Loading…';
                     fetch(src)
                         .then(function (r) { return r.text(); })
                         .then(function (uri) {
-                            input.value = uri.trim();
+                            var trimmed = uri.trim();
+                            uriCache[src] = trimmed;
+                            var size = (trimmed.length / 1024).toFixed(0);
+                            input.value = trimmed.substring(0, 80) + '… (' + size + ' KB)';
+                            input.setAttribute('data-uri-src', src);
                             panel.hidden = false;
-                            btn.querySelector('span').innerHTML = '<img class="play-btn-icon" src="../media/no-wifi.svg" alt=""> Play Offline';
+                            btn.querySelector('span').innerHTML = originalLabel;
                         })
                         .catch(function () {
                             btn.querySelector('span').innerHTML = '<img class="play-btn-icon" src="../media/no-wifi.svg" alt=""> Error loading';
@@ -42,12 +50,14 @@
                 });
             });
 
-            // Copy buttons
+            // Copy buttons — copy from JS variable, not from the input
             document.querySelectorAll('.offline-copy-btn').forEach(function (btn) {
                 btn.addEventListener('click', function () {
                     var input = document.getElementById(btn.getAttribute('data-target'));
-                    input.select();
-                    navigator.clipboard.writeText(input.value).then(function () {
+                    var src = input.getAttribute('data-uri-src');
+                    var data = uriCache[src];
+                    if (!data) return;
+                    navigator.clipboard.writeText(data).then(function () {
                         btn.textContent = 'Copied!';
                         setTimeout(function () { btn.textContent = 'Copy'; }, 2000);
                     });
@@ -100,7 +110,7 @@
                     </div>
                     <div class="card-buttons">
                         <a href="doom" class="play-btn" id="btn-doom"><span><img class="play-btn-icon" src="../media/wifi.svg" alt=""> Play Online</span></a>
-                        <button class="play-btn play-btn--offline" data-uri-src="doom/doom_src_b64-dataurl.txt"><span><img class="play-btn-icon" src="../media/no-wifi.svg" alt=""> Play Offline</span></button>
+                        <button class="play-btn play-btn--offline" data-uri-src="doom/doom_src_b64_dataurl.txt"><span><img class="play-btn-icon" src="../media/no-wifi.svg" alt=""> Play Offline</span></button>
                     </div>
                     <div class="offline-panel" id="offline-panel-doom" hidden>
                         <p class="offline-hint">Paste this URI into a new browser tab to play offline:</p>
@@ -142,8 +152,8 @@
                     <div class="card-buttons">
                         <a href="microdoom/v1.0" class="play-btn"><span><img class="play-btn-icon" src="../media/wifi.svg" alt=""> Play Online (v1.0)</span></a>
                         <a href="microdoom/v1.1" class="play-btn"><span><img class="play-btn-icon" src="../media/wifi.svg" alt=""> Play Online (v1.1)</span></a>
-                        <button class="play-btn play-btn--offline" data-uri-src="microdoom/v1.0/microdoom_v1.0_b64-dataurl.txt"><span><img class="play-btn-icon" src="../media/no-wifi.svg" alt=""> Play Offline (v1.0)</span></button>
-                        <!-- <button class="play-btn play-btn--offline" data-uri-src="microdoom/v1.1/microdoom_v1.1_b64-dataurl.txt"><span><img class="play-btn-icon" src="../media/no-wifi.svg" alt=""> Play Offline (v1.1)</span></button> -->
+                        <button class="play-btn play-btn--offline" data-uri-src="microdoom/v1.0/microdoom_v1.0_b64_dataurl.txt"><span><img class="play-btn-icon" src="../media/no-wifi.svg" alt=""> Play Offline (v1.0)</span></button>
+                        <!-- <button class="play-btn play-btn--offline" data-uri-src="microdoom/v1.1/microdoom_v1.1_b64_dataurl.txt"><span><img class="play-btn-icon" src="../media/no-wifi.svg" alt=""> Play Offline (v1.1)</span></button> -->
                     </div>
                     <div class="offline-panel" id="offline-panel-microdoom" hidden>
                         <p class="offline-hint">Paste this URI into a new browser tab to play offline:</p>
