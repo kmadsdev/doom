@@ -7,8 +7,8 @@
     <link rel="stylesheet" href="style.css">
     <link rel="icon" href="../media/no-wifi.svg">
     <script>
-        const DOOM_FILESIZE = '~4.3 MB';
-        const MICRODOOM_FILESIZE = '~44 KB';
+        const DOOM_FILESIZE = '~4.4 MB';
+        const MICRODOOM_FILESIZE = '~110 KB';
 
         document.addEventListener('DOMContentLoaded', function () {
             document.getElementById('badge-doom').textContent = DOOM_FILESIZE;
@@ -110,7 +110,7 @@
                     </div>
                     <div class="card-buttons">
                         <a href="doom" class="play-btn" id="btn-doom"><span><img class="play-btn-icon" src="../media/wifi.svg" alt=""> Play Online</span></a>
-                        <button class="play-btn play-btn--offline" data-uri-src="doom/doom_src_b64_dataurl.txt"><span><img class="play-btn-icon" src="../media/no-wifi.svg" alt=""> Play Offline</span></button>
+                        <button class="play-btn play-btn--offline" data-uri-src="doom/doom_src_b64_dataurl.txt"><span><img class="play-btn-icon" src="../media/no-wifi.svg" alt=""> Play Offline - 4.4mb</span></button>
                     </div>
                     <div class="offline-panel" id="offline-panel-doom" hidden>
                         <p class="offline-hint">Paste this URI into a new browser tab to play offline:</p>
@@ -124,20 +124,19 @@
             <div class="game-card game-card--micro">
                 <div class="card-image">
                     <img src="../media/microdoom_1.svg" alt="MicroDOOM gameplay screenshot" loading="lazy">
-                    <span class="card-badge" id="badge-microdoom">44 KB</span>
+                    <span class="card-badge" id="badge-microdoom">110 KB</span>
                 </div>
                 <div class="card-body">
                     <h3 class="card-name">MICRODOOM</h3>
-                    <p class="card-version">v1.0 &mdash; Hyper-Compressed</p>
+                    <p class="card-version">v1.12.0 &mdash; Hyper-Compressed</p>
                     <p class="card-desc">
-                        A full DOOM-like FPS in just <strong>44 kilobytes</strong>.
+                        A full DOOM-like FPS in just <strong>110 kilobytes</strong>.
                         Raycasting engine, enemies, multiple weapons, and a HUD —
-                        all hand-crafted in vanilla JavaScript. Smaller than a favicon. <br>
-                        MicroDOOM v1.1 still in progress, stay tuned for new updates.
+                        all hand-crafted in vanilla JavaScript. Smaller than a favicon.
                     </p>
                     <div class="card-stats">
                         <div class="stat">
-                        <div class="stat-value" id="microdoom-size-stat">44 KB</div>
+                        <div class="stat-value" id="microdoom-size-stat">110 KB</div>
                         <div class="stat-label">File Size</div>
                     </div>
                     <div class="stat">
@@ -151,9 +150,9 @@
                     </div>
                     <div class="card-buttons">
                         <a href="microdoom/v1.0" class="play-btn"><span><img class="play-btn-icon" src="../media/wifi.svg" alt=""> Play Online (v1.0)</span></a>
-                        <a href="microdoom/v1.1" class="play-btn"><span><img class="play-btn-icon" src="../media/wifi.svg" alt=""> Play Online (v1.1)</span></a>
-                        <button class="play-btn play-btn--offline" data-uri-src="microdoom/v1.0/microdoom_v1.0_b64_dataurl.txt"><span><img class="play-btn-icon" src="../media/no-wifi.svg" alt=""> Play Offline (v1.0)</span></button>
-                        <button class="play-btn play-btn--offline" data-uri-src="microdoom/v1.1/microdoom_v1.1_b64_dataurl.txt"><span><img class="play-btn-icon" src="../media/no-wifi.svg" alt=""> Play Offline (v1.1)</span></button>
+                        <a href="microdoom/v1.1" class="play-btn"><span><img class="play-btn-icon" src="../media/wifi.svg" alt=""> Play Online (v1.12)</span></a>
+                        <button class="play-btn play-btn--offline" data-uri-src="microdoom/v1.0/microdoom_v1.0_b64_dataurl.txt"><span><img class="play-btn-icon" src="../media/no-wifi.svg" alt=""> Play Offline (v1.0) - 44kb</span></button>
+                        <button class="play-btn play-btn--offline" data-uri-src="microdoom/v1.1/microdoom_v1.1_b64_dataurl.txt"><span><img class="play-btn-icon" src="../media/no-wifi.svg" alt=""> Play Offline (v1.12) - 110kb</span></button>
                     </div>
                     <div class="offline-panel" id="offline-panel-microdoom" hidden>
                         <p class="offline-hint">Paste this URI into a new browser tab to play offline:</p>
