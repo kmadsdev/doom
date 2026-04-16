@@ -51,11 +51,11 @@ Others use it to decompress images, styles or short scripts, we are use it to de
 
 ### Requirements
 
-| Tool                     | Browser | Version |
-|--------------------------|---------|---------|
-| Gzip DecompressionStream | Chrome  | 80+     |
-| Gzip DecompressionStream | Firefox | 113+    |
-| Gzip DecompressionStream | Safari  | 16.4+   |
+| Tool                | Browser | Req. Version |
+|---------------------|---------|--------------|
+| DecompressionStream | Chrome  | 80+          |
+| DecompressionStream | Firefox | 113+         |
+| DecompressionStream | Safari  | 16.4+        |
 
 > If your browser didn't load the game (shows a full blank screen) try inspecting it and check the message on `<script>` tag, it will say which version your browser needs.
 
@@ -176,7 +176,7 @@ python encode microdoom_v1.1
 ## Optimization
 
 - **`What it optimizes?`** The user browser's memory buffer.
-- **`Why?`** It is very crucial to compress the Data URL for the DOOM because even though the majority browsers will load 2-8mb of DURLs, some of them will crash with just over 4mb (the sweet spot for all browsers would be >2MB, unfortunitelly I couldn't achieve such a thing).
+- **`Why?`** It is very crucial to compress the Data URL for the DOOM because even though the majority browsers will load 2-8mb of DURLs, some of them will crash with just over 4mb (the sweet spot for all browsers would be >2MB, unfortunately I couldn't achieve such a thing).
 - **`How i did that?`** By compressing the raw HTML using GZIP and Base64 encoding, then using the user browser's built-in decompression tool in order to decompress the file on the go - It decompresses parts of the file as you play.
 - **`What was the impact?`** DOOM's raw Data Raw HTML (Converted from C to an All-in-one HTML/CSS/JS file) was initially over 7MB and the DURL was over 9MB (9,000,000 chars). After some optimization due to these limitations, **DOOM's Compressed Data URL** was just below 4.4MB (-51% reduction in size).
 - **`What about browsers who can't support 2MB+ DURLs?`** I've also created a remake versions (MicroDoom) that packs a similar idea to what doom is, but in less than 100kb (>100,000 chars), and the very first beta version (v1.0) weights only 44kb! Just for comparison: the Bee Movie Script weights about 80kb (9k+ words, 80k+ characters). It weights less than a favicon.
@@ -187,8 +187,8 @@ python encode microdoom_v1.1
 
 ## AI Usage
 
-- **Research**: gzip, base64, how to convert C -> HTML, encoding.
-- **microdoom**: I first asked claude to generate new enemies and a new bigger scenario - all my tokens expired before finishind. Then I decided to use ChatGPT - 5 minutes later the enemies where as fast as light and I was spawning INSIDE the obstacles. I had to do the enemies and obstacles by hand.
+- **Research**: How gzip works, base64, how to convert C -> HTML, encoding.
+- **microdoom**: I first asked claude to generate new enemies and a new bigger scenario - all my tokens expired before finishind. Then I decided to use ChatGPT - 5 minutes later the enemies where as fast as light and I was spawning INSIDE the obstacles. I had to do the enemies and obstacles by hand, like a caveman.
 
 
 <br>
@@ -204,6 +204,5 @@ python encode microdoom_v1.1
 
 
 <hr>
-
 <sub>&copy; 2026 kmadsdev &middot; Handcrafted by a human</sub>
 <hr>
