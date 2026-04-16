@@ -109,20 +109,20 @@ The `encoding/` directory contains a Python toolkit that converts HTML files int
 
 ```
 .
-├-- index.html              # Landing page (loading screen → redirect)
-├-- style.css               # Landing page styles
-├-- start/                  # Main site with game selector UI
-│   ├-- index.html          # "Choose Your Game" hub
-│   ├-- doom/               # Full DOOM (single-file HTML + encoded URI)
-│   ├-- microdoom_v1.0/     # MicroDOOM v1.0 (HTML + encoded URI)
-│   └-- microdoom_v1.1/     # MicroDOOM v1.1
-├-- encoding/               # Python encoding & compression pipeline
-│   ├-- doomhtml.py         # Bundles WASM + WAD into single HTML
-│   ├-- encoding_helpers.py # base64, data URL, gzip utilities
-│   └-- encoded_files/      # Timestamped encoded outputs
-├-- sources/                # Original unmodified HTML sources
-└-- lab/                    # Build experiments & WASM toolchain
-    └--- wasm-fizzbuzz/doom/ # C→WASM build pipeline for linuxdoom-1.10
+├-- index.html               # Landing page (loading screen → redirect)
+├-- style.css                # Landing page styles
+├-- start/                   # Main site with game selector UI
+│   ├-- index.html               # "Choose Your Game" hub
+│   ├-- doom/                    # Full DOOM (single-file HTML + encoded URI)
+│   ├-- microdoom_v1.0/          # MicroDOOM v1.0 (HTML + encoded URI)
+│   └-- microdoom_v1.1/          # MicroDOOM v1.1
+├-- encoding/                # Python encoding & compression pipeline
+│   ├-- doomhtml.py              # Bundles WASM + WAD into single HTML
+│   ├-- encoding_helpers.py      # base64, data URL, gzip utilities
+│   └-- encoded_files/           # Timestamped encoded outputs
+├-- sources/                 # Original unmodified HTML sources
+└-- lab/                     # Build experiments & WASM toolchain
+    └--- wasm-fizzbuzz/doom/     # C→WASM build pipeline for linuxdoom-1.10
 ```
 
 
@@ -168,6 +168,18 @@ python encode microdoom_v1.1
 - **Browser URI length limits** vary - Chrome caps `data:` URL navigation at ~2 MB
 - **Performance** - decompression adds a brief loading delay; WASM DOOM runs perfectly fine on modern browsers
 - **Compatibility** - requires a browser with WebAssembly support (all major modern browsers)
+
+
+<br>
+
+
+## Optimization
+
+- **`What it optimizes?`** The user browser's memory buffer.
+- **`Why?`** It is very crucial to compress the Data URL for the DOOM because even though the majority browsers will load 2-8mb of DURLs, some of them will crash with just over 4mb (the sweet spot for all browsers would be >2MB, unfortunitelly I couldn't achieve such a thing).
+- **`How i did that?`** By compressing the raw HTML using GZIP and Base64 encoding, then using the user browser's built-in decompression tool in order to decompress the file on the go - It decompresses parts of the file as you play.
+- **`What was the impact?`** DOOM's raw Data Raw HTML (Converted from C to an All-in-one HTML/CSS/JS file) was initially over 7MB and the DURL was over 9MB (9,000,000 chars). After some optimization due to these limitations, **DOOM's Compressed Data URL** was just below 4.4MB (-51% reduction in size).
+- **`What about browsers who can't support 2MB+ DURLs?`** I've also created a remake versions (MicroDoom) that packs a similar idea to what doom is, but in less than 100kb (>100,000 chars), and the very first beta version (v1.0) weights only 44kb! Just for comparison: the Bee Movie Script weights about 80kb (9k+ words, 80k+ characters). It weights less than a favicon.
 
 
 <br>
