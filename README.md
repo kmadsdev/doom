@@ -3,6 +3,10 @@
 **Zero files. Zero hosting. Just pure DOOM - into the URL.**
 > **Website: [https://kmads.dev/doom](https://kmads.dev/doom)**
 
+![Classic Doom in the browser: the id Software title screen, the episode and skill menus, then the first level (E1M1) with the player walking](docs/media/doom.gif)
+
+*Recorded on the live site, [kmads.dev/doom](https://kmads.dev/doom/), on 2026-11-13.*
+
 An offline web application that packs the original **DOOM** (1993) + an self-made additional handcrafted **MicroDOOM** (compact version / remake) into a single HTML file. <br>
 Then encodes them as **base64 data URIs** that you can paste into any browser and play - fully plug-and-play offline games, no backend or files required.
 
